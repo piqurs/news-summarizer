@@ -45,31 +45,46 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 
 ## Implemented (2026-02)
 - FastAPI backend with `/api/health`, `/api/summarize`, `/api/latest-updates`,
-  `/api/translate`.
+  `/api/translate`, `/api/recent`, `/api/rate-status`.
 - Claude Sonnet 4.5 structured JSON generation with fallback UA article fetch.
-- **Bahasa Indonesia is now the default output language** — Claude summarises
+- **Bahasa Indonesia is the default output language** — Claude summarises
   in Indonesian regardless of source article language. `confidence_level.level`
-  is enforced as the literal English string ("High"/"Medium"/"Low") because
-  the UI badge depends on it.
-- **EN ↔ ID language toggle** on the result card near the export/share row.
-  Only the currently-displayed language is fetched; toggling back and forth
-  never re-triggers the AI once each version has been cached.
-- Cache schema per URL hash now stores `payload` (Indonesian) plus
-  `translations.<lang>` (e.g. `translations.en`) on the same document, sharing
-  the 24 h TTL. Cache hits do not consume any rate-limit budget.
+  and `sentiment_and_bias.tone` are enforced as literal English strings so
+  the UI badges continue to map correctly.
+- **Sentiment & Bias Analysis (section #5)** — tone
+  (Positive/Neutral/Negative/Mixed) + one-sentence explanation + observable
+  bias indicators grounded in the article text. Empty indicators when the
+  article is balanced (no manufactured claims). Labelled as AI-generated,
+  not a factual claim about the publisher.
+- **References sanitiser** — server-side drops any entry without a real
+  `http(s)://` URL before returning to the client. Never render a bare
+  reference card with no link.
+- **EN ↔ ID language toggle** on the result card. Only the currently-displayed
+  language is fetched; toggling back and forth after the first translation
+  makes zero network calls.
+- **Recent News (Last 24h)** — public feed of the last 6 cached summaries
+  sitting above the About section. Click a card to load the cached analysis
+  into the main result card without any AI call or rate-limit charge.
+- Cache schema per URL hash stores `payload` (Indonesian) plus
+  `translations.<lang>` under a single document that shares the 24 h TTL;
+  cache hits are free. Expired rows drop out of `/api/recent` naturally.
 - Tavily-powered Latest Updates section (deferred, chronological, deduped).
-- URL normalization + SHA256-hashed 24h Mongo cache.
 - Per-IP sliding-hour rate limits (Mongo-backed): 5/h summarize, 5/h updates,
-  5/h translate. Cache hits are free.
+  5/h translate.
 - Full React SPA: Cabinet Grotesk headings + IBM Plex Sans body, Linear-style
   mono palette with subtle blue accent, staggered framer-motion entrance,
   animated loading state with rotating status messages.
-- ExportShare group (Copy, PDF, DOCX, Web Share fallback → clipboard). All
-  exports honour the currently-selected language.
-- Confidence badge (High/Medium/Low), "AI-generated" label on
-  Recommended Actions, dashed borders + monospace meta for engineered feel.
-- Bento About section + 2-tile roadmap.
+- ExportShare (Copy, PDF, DOCX, Web Share fallback → clipboard) — always
+  exports the currently-selected language.
+- Confidence badge, AI-generated labels on Recommended Actions and Sentiment
+  & Bias, dashed borders + monospace meta for engineered feel.
+- Bento About section with 13 feature cards (roadmap removed 2026-02).
 - Footer with GitHub / LinkedIn / Instagram links.
+
+## Result-card section order (10 sections)
+1 Executive Summary · 2 Key Points · 3 Main Issue · 4 Root Cause ·
+5 Sentiment & Bias Analysis · 6 Recommended Actions · 7 Latest Updates ·
+8 5W1H · 9 References · 10 Confidence
 
 ## Backlog (Deferred)
 ### P1
