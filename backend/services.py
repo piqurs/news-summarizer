@@ -366,10 +366,12 @@ class CacheAndRateLimit:
         window_start = now - timedelta(hours=1)
         # Purge old
         await self.rate.delete_many({"ts": {"$lt": window_start.isoformat()}})
-        count = await self.rate.count_documents({
+        # Bounded scan — stop counting once we've seen `limit` docs.
+        docs = await self.rate.find({
             "ip": ip, "bucket": bucket,
             "ts": {"$gte": window_start.isoformat()},
-        })
+        }).limit(limit).to_list(limit)
+        count = len(docs)
         if count >= limit:
             return False, 0
         await self.rate.insert_one({
