@@ -44,15 +44,28 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 7. Responsive down to mobile.
 
 ## Implemented (2026-02)
-- FastAPI backend with `/api/health`, `/api/summarize`, `/api/latest-updates`.
+- FastAPI backend with `/api/health`, `/api/summarize`, `/api/latest-updates`,
+  `/api/translate`.
 - Claude Sonnet 4.5 structured JSON generation with fallback UA article fetch.
+- **Bahasa Indonesia is now the default output language** — Claude summarises
+  in Indonesian regardless of source article language. `confidence_level.level`
+  is enforced as the literal English string ("High"/"Medium"/"Low") because
+  the UI badge depends on it.
+- **EN ↔ ID language toggle** on the result card near the export/share row.
+  Only the currently-displayed language is fetched; toggling back and forth
+  never re-triggers the AI once each version has been cached.
+- Cache schema per URL hash now stores `payload` (Indonesian) plus
+  `translations.<lang>` (e.g. `translations.en`) on the same document, sharing
+  the 24 h TTL. Cache hits do not consume any rate-limit budget.
 - Tavily-powered Latest Updates section (deferred, chronological, deduped).
 - URL normalization + SHA256-hashed 24h Mongo cache.
-- Per-IP sliding-hour rate limit (Mongo-backed).
+- Per-IP sliding-hour rate limits (Mongo-backed): 5/h summarize, 5/h updates,
+  5/h translate. Cache hits are free.
 - Full React SPA: Cabinet Grotesk headings + IBM Plex Sans body, Linear-style
   mono palette with subtle blue accent, staggered framer-motion entrance,
   animated loading state with rotating status messages.
-- ExportShare group (Copy, PDF, DOCX, Web Share fallback → clipboard).
+- ExportShare group (Copy, PDF, DOCX, Web Share fallback → clipboard). All
+  exports honour the currently-selected language.
 - Confidence badge (High/Medium/Low), "AI-generated" label on
   Recommended Actions, dashed borders + monospace meta for engineered feel.
 - Bento About section + 2-tile roadmap.
@@ -77,4 +90,5 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 - `TAVILY_API_KEY`
 - `RATE_LIMIT_SUMMARY` (default 5)
 - `RATE_LIMIT_UPDATES` (default 5)
+- `RATE_LIMIT_TRANSLATE` (default 5)
 - `CACHE_TTL_HOURS` (default 24)
