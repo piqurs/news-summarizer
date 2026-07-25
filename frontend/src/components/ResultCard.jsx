@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import {
     Clock,
     ExternalLink,
@@ -10,7 +12,9 @@ import {
 } from "lucide-react";
 import { ConfidenceBadge } from "./ConfidenceBadge";
 import { ExportShare } from "./ExportShare";
+import { LanguageToggle } from "./LanguageToggle";
 import { LatestUpdates } from "./LatestUpdates";
+import { translateArticle } from "../lib/api";
 
 function fmt(iso) {
     if (!iso) return null;
@@ -31,8 +35,45 @@ const stagger = {
 };
 
 export function ResultCard({ summary, cached }) {
-    const a = summary.article || {};
-    const w = summary.five_w_one_h || {};
+    const url = summary?.article?.original_url;
+    // Cache summaries per language. `id` is always the initial payload from
+    // the /summarize call; `en` is fetched on-demand via /translate.
+    const [langCache, setLangCache] = useState({ id: summary, en: null });
+    const [lang, setLang] = useState("id");
+    const [loadingTarget, setLoadingTarget] = useState(null);
+
+    // Reset local cache when a new summary flows in (different article).
+    useEffect(() => {
+        setLangCache({ id: summary, en: null });
+        setLang("id");
+        setLoadingTarget(null);
+    }, [summary]);
+
+    const handleLangChange = async (target) => {
+        if (target === lang || loadingTarget) return;
+        if (langCache[target]) {
+            setLang(target);
+            return;
+        }
+        setLoadingTarget(target);
+        try {
+            const res = await translateArticle(url, target);
+            setLangCache((prev) => ({ ...prev, [target]: res.summary }));
+            setLang(target);
+        } catch (e) {
+            const msg =
+                e?.response?.data?.detail ||
+                e?.message ||
+                "Could not translate the summary.";
+            toast.error(msg);
+        } finally {
+            setLoadingTarget(null);
+        }
+    };
+
+    const displayed = langCache[lang] || summary;
+    const a = displayed.article || {};
+    const w = displayed.five_w_one_h || {};
     const wKeys = ["who", "what", "when", "where", "why", "how"];
 
     return (
@@ -57,8 +98,8 @@ export function ResultCard({ summary, cached }) {
                         </span>
                     )}
                     <ConfidenceBadge
-                        level={summary.confidence_level?.level}
-                        reason={summary.confidence_level?.reason}
+                        level={displayed.confidence_level?.level}
+                        reason={displayed.confidence_level?.reason}
                     />
                 </div>
 
@@ -108,9 +149,19 @@ export function ResultCard({ summary, cached }) {
                     </div>
                 </motion.div>
 
-                {/* Export/Share */}
-                <motion.div variants={stagger} custom={1} className="mt-6">
-                    <ExportShare summary={summary} />
+                {/* Export/Share + language toggle */}
+                <motion.div
+                    variants={stagger}
+                    custom={1}
+                    className="mt-6 flex flex-wrap items-center justify-between gap-3"
+                >
+                    <ExportShare summary={displayed} />
+                    <LanguageToggle
+                        current={lang}
+                        onChange={handleLangChange}
+                        loading={!!loadingTarget}
+                        target={loadingTarget}
+                    />
                 </motion.div>
 
                 <hr className="my-8 border-border" />
@@ -123,7 +174,7 @@ export function ResultCard({ summary, cached }) {
                             text-foreground/90 font-display font-normal max-w-4xl"
                         data-testid="executive-summary"
                     >
-                        {summary.executive_summary}
+                        {displayed.executive_summary}
                     </p>
                 </motion.div>
 
@@ -140,7 +191,7 @@ export function ResultCard({ summary, cached }) {
                             2 · Key Points
                         </div>
                         <ol className="space-y-2">
-                            {(summary.key_points || []).map((k, i) => (
+                            {(displayed.key_points || []).map((k, i) => (
                                 <li key={i} className="flex gap-3 text-sm leading-relaxed">
                                     <span className="font-mono-alt text-muted-foreground mt-0.5">
                                         0{i + 1}
@@ -162,11 +213,11 @@ export function ResultCard({ summary, cached }) {
                             3 · Main Issue
                         </div>
                         <p className="text-sm leading-relaxed">
-                            {summary.main_issue?.summary}
+                            {displayed.main_issue?.summary}
                         </p>
-                        {summary.main_issue?.significance && (
+                        {displayed.main_issue?.significance && (
                             <p className="mt-3 text-xs text-muted-foreground border-l-2 border-accent pl-3">
-                                {summary.main_issue.significance}
+                                {displayed.main_issue.significance}
                             </p>
                         )}
                     </motion.div>
@@ -182,7 +233,7 @@ export function ResultCard({ summary, cached }) {
                             4 · Root Cause
                         </div>
                         <ul className="space-y-2">
-                            {(summary.root_cause?.causes || []).map((c, i) => (
+                            {(displayed.root_cause?.causes || []).map((c, i) => (
                                 <li key={i} className="flex gap-3 text-sm leading-relaxed">
                                     <span className="font-mono-alt text-muted-foreground mt-0.5">
                                         →
@@ -191,9 +242,9 @@ export function ResultCard({ summary, cached }) {
                                 </li>
                             ))}
                         </ul>
-                        {summary.root_cause?.certainty_note && (
+                        {displayed.root_cause?.certainty_note && (
                             <p className="mt-3 text-xs text-muted-foreground italic">
-                                {summary.root_cause.certainty_note}
+                                {displayed.root_cause.certainty_note}
                             </p>
                         )}
                     </motion.div>
@@ -218,9 +269,9 @@ export function ResultCard({ summary, cached }) {
                     </div>
                     <div className="mt-4 grid gap-4 md:grid-cols-3">
                         {[
-                            ["Immediate", summary.recommended_actions?.immediate],
-                            ["Short-term", summary.recommended_actions?.short_term],
-                            ["Long-term", summary.recommended_actions?.long_term],
+                            ["Immediate", displayed.recommended_actions?.immediate],
+                            ["Short-term", displayed.recommended_actions?.short_term],
+                            ["Long-term", displayed.recommended_actions?.long_term],
                         ].map(([label, items]) => (
                             <div key={label} className="cell">
                                 <div className="text-xs font-semibold tracking-wide text-foreground mb-3">
@@ -242,10 +293,10 @@ export function ResultCard({ summary, cached }) {
                             </div>
                         ))}
                     </div>
-                    {summary.recommended_actions?.disclaimer && (
+                    {displayed.recommended_actions?.disclaimer && (
                         <p className="mt-3 text-xs text-muted-foreground flex items-center gap-1">
                             <Info className="h-3 w-3" strokeWidth={1.75} />
-                            {summary.recommended_actions.disclaimer}
+                            {displayed.recommended_actions.disclaimer}
                         </p>
                     )}
                 </motion.div>
@@ -253,7 +304,7 @@ export function ResultCard({ summary, cached }) {
                 {/* Latest Updates */}
                 <motion.div variants={stagger} custom={7} className="mt-10">
                     <LatestUpdates
-                        topic={a.title || summary.main_issue?.summary || ""}
+                        topic={a.title || displayed.main_issue?.summary || ""}
                         sourceUrl={a.original_url}
                     />
                 </motion.div>
@@ -289,7 +340,7 @@ export function ResultCard({ summary, cached }) {
                 >
                     <div className="label-eyebrow">8 · References</div>
                     <ul className="mt-4 divide-y divide-border border border-border rounded-md">
-                        {(summary.references || []).map((r, i) => (
+                        {(displayed.references || []).map((r, i) => (
                             <li key={i} className="p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                                 <span className="font-mono-alt text-xs text-muted-foreground w-10">
                                     [{String(i + 1).padStart(2, "0")}]
@@ -325,10 +376,10 @@ export function ResultCard({ summary, cached }) {
                     <div className="label-eyebrow shrink-0 pt-1">9 · Confidence</div>
                     <p className="text-sm text-muted-foreground leading-relaxed">
                         <span className="text-foreground font-medium">
-                            {summary.confidence_level?.level}
+                            {displayed.confidence_level?.level}
                         </span>
-                        {summary.confidence_level?.reason
-                            ? ` — ${summary.confidence_level.reason}`
+                        {displayed.confidence_level?.reason
+                            ? ` — ${displayed.confidence_level.reason}`
                             : ""}
                     </p>
                 </motion.div>

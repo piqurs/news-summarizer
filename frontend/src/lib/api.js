@@ -26,3 +26,8 @@ export async function getRateStatus() {
     const { data } = await client.get("/rate-status");
     return data;
 }
+
+export async function translateArticle(url, target) {
+    const { data } = await client.post("/translate", { url, target });
+    return data;
+}

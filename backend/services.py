@@ -140,9 +140,9 @@ def extract_article(url: str) -> dict[str, Any]:
 
 # --- Claude summarization -------------------------------------------------
 
-_SYSTEM_PROMPT = """You are an expert news analyst producing structured JSON summaries.
+_SYSTEM_PROMPT = """You are an expert news analyst producing structured JSON summaries in Bahasa Indonesia.
 
-You will receive a news article and MUST return a single JSON object matching this exact schema — no prose, no markdown fences, no commentary. All keys are required.
+You will receive a news article (in ANY language) and MUST return a single JSON object matching this exact schema — no prose, no markdown fences, no commentary. All keys are required.
 
 {
   "title": "string — article title",
@@ -183,7 +183,10 @@ You will receive a news article and MUST return a single JSON object matching th
 }
 
 Rules:
-- Never invent facts. If missing, say so in the relevant section.
+- Language: Every human-readable string value MUST be written in Bahasa Indonesia (Indonesian), regardless of the source article's language. This includes title, category, executive_summary, key_points, main_issue.*, root_cause.*, recommended_actions.* items and disclaimer, five_w_one_h.*, references[].title/website, confidence_level.reason.
+- Keep the following as-is in their original form: URLs, publication_date, dates in references, and the confidence_level.level value which MUST remain exactly one of the literal English strings "High", "Medium", or "Low".
+- Keep proper nouns (people, organisations, places) natural — translate only when a standard Indonesian equivalent exists.
+- Never invent facts. If missing, say so in the relevant section (in Indonesian).
 - References must include the source article itself plus any other sources it explicitly cites.
 - Keep every string plain text — no markdown, no HTML.
 - Return ONLY the JSON object, nothing else."""
@@ -415,7 +418,12 @@ class CacheAndRateLimit:
         await self.cache.create_index("created_at")
         await self.rate.create_index([("ip", 1), ("bucket", 1), ("ts", 1)])
 
-    async def get_cached(self, h: str) -> Optional[dict[str, Any]]:
+    async def get_cached(self, h: str, language: str = "id"
+                         ) -> Optional[dict[str, Any]]:
+        """Return the cached summary in the requested language, or None if the
+        cache is missing/expired or the requested translation is not stored yet.
+        The primary (Indonesian) payload lives under `payload`; every additional
+        language is stored under `translations.<lang>`."""
         doc = await self.cache.find_one({"hash": h}, {"_id": 0})
         if not doc:
             return None
@@ -426,7 +434,31 @@ class CacheAndRateLimit:
             return None
         if datetime.now(timezone.utc) - created > timedelta(hours=self.ttl_hours):
             return None
-        return doc.get("payload")
+        if language == "id":
+            return doc.get("payload")
+        translations = doc.get("translations") or {}
+        return translations.get(language)
+
+    async def get_cache_doc(self, h: str) -> Optional[dict[str, Any]]:
+        """Return the whole cache document (fresh only), or None."""
+        doc = await self.cache.find_one({"hash": h}, {"_id": 0})
+        if not doc:
+            return None
+        created = doc.get("created_at")
+        if isinstance(created, str):
+            created = datetime.fromisoformat(created)
+        if not created:
+            return None
+        if datetime.now(timezone.utc) - created > timedelta(hours=self.ttl_hours):
+            return None
+        return doc
+
+    async def set_translation(self, h: str, language: str,
+                              translated: dict[str, Any]) -> None:
+        await self.cache.update_one(
+            {"hash": h},
+            {"$set": {f"translations.{language}": translated}},
+        )
 
     async def set_cached(self, h: str, url: str, payload: dict[str, Any]) -> None:
         await self.cache.update_one(

@@ -10,14 +10,15 @@ BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 
 @pytest.fixture(scope="session", autouse=True)
 def reset_mongo_state():
-    """Reset rate_limit + cache collections BEFORE the test session starts so the
-    5-per-hour limits are predictable and the cache tests are deterministic.
+    """Reset rate_limit BEFORE the test session so the 5-per-hour budget is
+    predictable. summary_cache is NOT wiped here — tests that need a cache
+    miss do a per-URL delete themselves (keeps other test modules from
+    losing pre-seeded articles).
     Uses the same MongoDB the backend uses (localhost)."""
     client = MongoClient("mongodb://localhost:27017")
     db = client["test_database"]
     db.rate_limit.delete_many({})
-    db.summary_cache.delete_many({})
-    print("[reset_mongo_state] cleared rate_limit + summary_cache")
+    print("[reset_mongo_state] cleared rate_limit")
     yield
     client.close()
 

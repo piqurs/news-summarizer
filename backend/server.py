@@ -56,7 +56,7 @@ class LatestUpdatesRequest(BaseModel):
 
 
 class TranslateRequest(BaseModel):
-    summary: dict = Field(..., description="A full summary payload")
+    url: str = Field(..., min_length=8, max_length=2048)
     target: str = Field(..., pattern="^(en|id)$")
 
 
@@ -108,7 +108,8 @@ async def health():
 
 def rate_limit_response(limit: int, retry_after: int, bucket: str) -> JSONResponse:
     minutes = max(1, round(retry_after / 60))
-    label = "summaries" if bucket == "summarize" else "updates"
+    labels = {"summarize": "summaries", "updates": "updates", "translate": "translations"}
+    label = labels.get(bucket, bucket)
     return JSONResponse(
         status_code=429,
         content={
@@ -165,13 +166,14 @@ async def summarize(payload: SummarizeRequest, request: Request):
     ip = client_ip(request)
 
     # Cache lookup FIRST (no rate-limit charge for cached results)
-    cached = await store.get_cached(h)
+    cached = await store.get_cached(h, "id")
     if cached:
         logger.info("cache_hit hash=%s", h[:10])
         peek_remaining, _ = await store.peek_rate(ip, "summarize", limit)
         return {
             "cached": True,
             "summary": cached,
+            "language": "id",
             "rate_limit": {"limit": limit, "remaining": peek_remaining},
         }
 
@@ -189,7 +191,7 @@ async def summarize(payload: SummarizeRequest, request: Request):
         raise HTTPException(status_code=502,
                             detail="Failed to fetch the article. Check the URL and try again.")
 
-    # Summarize
+    # Summarize (output is Bahasa Indonesia by default)
     try:
         ai = await summarize_article(article["text"], normalized, article["meta"])
     except RuntimeError as e:
@@ -205,6 +207,7 @@ async def summarize(payload: SummarizeRequest, request: Request):
     return {
         "cached": False,
         "summary": result,
+        "language": "id",
         "rate_limit": {"limit": limit, "remaining": remaining},
     }
 
@@ -242,14 +245,51 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
 
 @api_router.post("/translate")
 async def translate(payload: TranslateRequest, request: Request):
-    limit = int(os.environ.get("RATE_LIMIT_TRANSLATE", "5"))
+    limit = int(os.environ.get("RATE_LIMIT_TRANSLATE", "10"))
     ip = client_ip(request)
+    target = payload.target
+
+    try:
+        normalized = normalize_url(payload.url.strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid URL format.")
+
+    h = url_hash(normalized)
+    doc = await store.get_cache_doc(h)
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail="No cached summary for this article. Please summarize it first.",
+        )
+
+    # ID = the primary payload (already stored on first summarize)
+    if target == "id":
+        peek_remaining, _ = await store.peek_rate(ip, "translate", limit)
+        return {
+            "cached": True,
+            "summary": doc.get("payload"),
+            "target": "id",
+            "rate_limit": {"limit": limit, "remaining": peek_remaining},
+        }
+
+    # target == "en": cache hit → free
+    translations = doc.get("translations") or {}
+    if translations.get(target):
+        peek_remaining, _ = await store.peek_rate(ip, "translate", limit)
+        return {
+            "cached": True,
+            "summary": translations[target],
+            "target": target,
+            "rate_limit": {"limit": limit, "remaining": peek_remaining},
+        }
+
+    # cache miss → charge rate limit, translate, save
     allowed, remaining, retry_after = await store.check_rate(ip, "translate", limit)
     if not allowed:
         return rate_limit_response(limit, retry_after, "translate")
 
     try:
-        translated = await translate_summary(payload.summary, payload.target)
+        translated = await translate_summary(doc["payload"], target)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
@@ -257,9 +297,12 @@ async def translate(payload: TranslateRequest, request: Request):
         raise HTTPException(status_code=503,
                             detail=f"Translation service temporarily unavailable: {e}")
 
+    await store.set_translation(h, target, translated)
+    logger.info("translate_store hash=%s lang=%s", h[:10], target)
     return {
+        "cached": False,
         "summary": translated,
-        "target": payload.target,
+        "target": target,
         "rate_limit": {"limit": limit, "remaining": remaining},
     }
 

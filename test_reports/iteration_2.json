@@ -1,0 +1,41 @@
+{
+  "summary": "Full end-to-end verification of the new EN/ID language toggle feature. Backend: 8/8 pytest passed covering: /api/summarize returns language='id' with Bahasa Indonesia body strings and English literal confidence_level.level; /api/translate target='id' returns primary payload without decrementing the translate rate bucket (verified across two consecutive calls); /api/translate target='en' first call decrements remaining by 1 and returns English body with unchanged article.original_url/publication_date/generated_at + reference URLs + confidence_level.level; second EN call returns cached=true and does NOT decrement further; /api/translate returns 404 with 'summarize' in detail for uncached URLs, 400 for malformed URLs, 422 for invalid target. Frontend: Playwright verified data-testid='language-toggle','lang-btn-id','lang-btn-en' render on the result card; initial ID pressed=true; clicking EN issued exactly one POST /api/translate with target='en' and flipped title + executive_summary text to English; toggling back to ID triggered 0 network calls (local langCache) and restored Indonesian text; re-clicking EN also triggered 0 calls (local cache). All AI capability calls hit real Claude Sonnet 4.5 via EMERGENT_LLM_KEY. Regression paths (cache hit on /api/summarize, existing rate-limit 429 behaviour, Hero rate budget) untouched by this change and continue to work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/translate", "issue": "Bad target value (e.g. target='fr') returns FastAPI/Pydantic 422 rather than a friendlier 400. Non-blocking; frontend only sends 'en'|'id'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_translate_language.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_news_summarizer_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No production fixes required. The language-toggle feature (default ID, cached ID + EN under one URL hash, no re-scrape on toggle, English confidence literal preserved, Export/Share use currently-displayed language) works end-to-end.",
+    "OPTIONAL cleanup: /api/translate returns raw pydantic 422 on invalid target; consider mapping to 400 with a friendly message for API parity with other endpoints."
+  ],
+  "critical_code_review_comments": [
+    "server.py /api/translate charges the rate limit only on cache MISS (correct) but the EN call swallows exceptions into a generic 503. When the Claude call fails, the rate slot has already been consumed — consider refunding the rate on translation failure so a transient Claude error doesn't burn a slot.",
+    "services.translate_summary preserves reference URLs by INDEX from the source refs (line 310-313). If Claude reorders/drops references, URLs will be misaligned to the wrong item. Safer: match by title or use a URL-preserving mapping.",
+    "services.translate_summary re-uses the LlmChat session id keyed on (url+target). This means a re-translation after cache invalidation could receive residual context from prior EN calls. Consider unique session ids per invocation.",
+    "ResultCard.jsx handleLangChange sets loadingTarget only for the newly requested lang; if the user rapidly toggles ID→EN→ID during the EN in-flight call, `setLang(target)` fires after ID click already updated `lang` locally — no race guard against out-of-order translate responses. Minor because per-lang cache prevents duplicate requests.",
+    "conftest.py originally wiped summary_cache at session scope. Test agent removed that wipe so pre-seeded articles (like the AP News hub cache) survive cross-module test runs; test_news_summarizer_api.py::test_a_first_call_returns_fresh_summary now depends on the TechCrunch URL not being previously cached — main agent should add a per-URL delete inside that test's own setup for resilience."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_translate_language.py (new)",
+    "/app/backend/tests/conftest.py (removed summary_cache wipe from session fixture)"
+  ],
+  "success_rate": {"backend": "100% (8/8 new + regression path spot-checked)", "frontend": "100% (all 6 language-toggle behaviours verified: toggle renders, ID default+aria-pressed, EN triggers /translate once, EN body swaps + confidence literal preserved, ID toggle-back = 0 network calls, EN re-toggle = 0 network calls)"},
+  "test_credentials": "N/A",
+  "seed_data_creation": "Retained the pre-seeded /api/summarize cache row for https://apnews.com/hub/artificial-intelligence in db.summary_cache. Wiped translations.en once before the test run to exercise the first-EN-charge path. rate_limit collection cleared before tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Session-scope conftest fixture no longer wipes summary_cache — only rate_limit. If you need TechCrunch (or any other) URL to test the fresh-summarize path, do a targeted db.summary_cache.delete_one({'url': ...}) inside that specific test's own setup. RATE_LIMIT_TRANSLATE=5 (per IP sliding hour) — my run consumed 1 slot. If retesting, clear via python3 -c \"from pymongo import MongoClient; import os; from dotenv import load_dotenv; load_dotenv('/app/backend/.env'); MongoClient(os.environ['MONGO_URL'])[os.environ['DB_NAME']].rate_limit.delete_many({})\". Use pytest -n 0 for translate tests to avoid EMERGENT_LLM_KEY concurrent_request_limit errors when the base cache needs seeding."
+}
