@@ -333,7 +333,7 @@ class CacheAndRateLimit:
     async def ensure_indexes(self) -> None:
         await self.cache.create_index("hash", unique=True)
         await self.cache.create_index("created_at")
-        await self.rate.create_index([("ip", 1), ("bucket", 1), ("window", 1)])
+        await self.rate.create_index([("ip", 1), ("bucket", 1), ("ts", 1)])
 
     async def get_cached(self, h: str) -> Optional[dict[str, Any]]:
         doc = await self.cache.find_one({"hash": h}, {"_id": 0})
