@@ -194,7 +194,7 @@ async def summarize_article(text: str, source_url: str,
     """Call Claude Sonnet 4.5 and return parsed JSON dict."""
     key = os.environ["EMERGENT_LLM_KEY"]
 
-    session_id = f"summary-{hashlib.md5(source_url.encode()).hexdigest()[:12]}"
+    session_id = f"summary-{hashlib.sha256(source_url.encode()).hexdigest()[:12]}"
     chat = LlmChat(
         api_key=key,
         session_id=session_id,

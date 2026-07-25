@@ -36,8 +36,13 @@ export function ExportShare({ summary }) {
         try {
             const shared = await shareSummary(summary);
             toast.success(shared ? "Shared" : "Copied — sharing not available");
-        } catch {
-            /* user cancelled — ignore */
+        } catch (err) {
+            // User cancelling the Web Share dialog throws AbortError — that's
+            // not a failure. Log anything else so we can debug.
+            if (err?.name !== "AbortError") {
+                console.warn("Share failed", err);
+                toast.error("Sharing failed");
+            }
         }
     };
 
