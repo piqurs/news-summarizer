@@ -360,21 +360,55 @@ class CacheAndRateLimit:
             upsert=True,
         )
 
-    async def check_rate(self, ip: str, bucket: str, limit: int) -> tuple[bool, int]:
-        """Sliding-hour window per IP. Returns (allowed, remaining)."""
+    async def check_rate(self, ip: str, bucket: str, limit: int
+                         ) -> tuple[bool, int, int]:
+        """Sliding-hour window per IP.
+        Returns (allowed, remaining, retry_after_seconds).
+        retry_after_seconds is the wait until the oldest in-window entry
+        expires (0 when still allowed)."""
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(hours=1)
         # Purge old
         await self.rate.delete_many({"ts": {"$lt": window_start.isoformat()}})
-        # Bounded scan — stop counting once we've seen `limit` docs.
         docs = await self.rate.find({
             "ip": ip, "bucket": bucket,
             "ts": {"$gte": window_start.isoformat()},
-        }).limit(limit).to_list(limit)
+        }).sort("ts", 1).limit(limit).to_list(limit)
         count = len(docs)
         if count >= limit:
-            return False, 0
+            oldest_ts = docs[0]["ts"]
+            try:
+                oldest_dt = datetime.fromisoformat(oldest_ts)
+            except ValueError:
+                oldest_dt = now
+            retry_after = int(
+                (oldest_dt + timedelta(hours=1) - now).total_seconds()
+            )
+            return False, 0, max(retry_after, 1)
         await self.rate.insert_one({
             "ip": ip, "bucket": bucket, "ts": now.isoformat(),
         })
-        return True, limit - count - 1
+        return True, limit - count - 1, 0
+
+    async def peek_rate(self, ip: str, bucket: str, limit: int
+                        ) -> tuple[int, int]:
+        """Return (remaining, retry_after_seconds) without consuming."""
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(hours=1)
+        docs = await self.rate.find({
+            "ip": ip, "bucket": bucket,
+            "ts": {"$gte": window_start.isoformat()},
+        }).sort("ts", 1).limit(limit).to_list(limit)
+        count = len(docs)
+        remaining = max(0, limit - count)
+        retry_after = 0
+        if remaining == 0 and docs:
+            try:
+                oldest_dt = datetime.fromisoformat(docs[0]["ts"])
+                retry_after = max(
+                    1,
+                    int((oldest_dt + timedelta(hours=1) - now).total_seconds()),
+                )
+            except ValueError:
+                retry_after = 0
+        return remaining, retry_after

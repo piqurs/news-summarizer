@@ -21,3 +21,8 @@ export async function getLatestUpdates(topic, sourceUrl) {
     });
     return data;
 }
+
+export async function getRateStatus() {
+    const { data } = await client.get("/rate-status");
+    return data;
+}

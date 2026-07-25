@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -99,6 +100,47 @@ async def health():
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 
+def rate_limit_response(limit: int, retry_after: int, bucket: str) -> JSONResponse:
+    minutes = max(1, round(retry_after / 60))
+    label = "summaries" if bucket == "summarize" else "updates"
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": (
+                f"You've used all {limit} {label} for this hour. "
+                f"Please try again in about {minutes} minute"
+                f"{'s' if minutes != 1 else ''}."
+            ),
+            "rate_limit": {
+                "limit": limit,
+                "remaining": 0,
+                "retry_after_seconds": retry_after,
+                "bucket": bucket,
+            },
+        },
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+@api_router.get("/rate-status")
+async def rate_status(request: Request):
+    ip = client_ip(request)
+    s_limit = int(os.environ.get("RATE_LIMIT_SUMMARY", "5"))
+    u_limit = int(os.environ.get("RATE_LIMIT_UPDATES", "5"))
+    s_remaining, s_retry = await store.peek_rate(ip, "summarize", s_limit)
+    u_remaining, u_retry = await store.peek_rate(ip, "updates", u_limit)
+    return {
+        "summarize": {
+            "limit": s_limit, "remaining": s_remaining,
+            "retry_after_seconds": s_retry,
+        },
+        "updates": {
+            "limit": u_limit, "remaining": u_remaining,
+            "retry_after_seconds": u_retry,
+        },
+    }
+
+
 @api_router.post("/summarize")
 async def summarize(payload: SummarizeRequest, request: Request):
     raw_url = payload.url.strip()
@@ -113,22 +155,23 @@ async def summarize(payload: SummarizeRequest, request: Request):
         raise HTTPException(status_code=400, detail="Invalid URL format.")
 
     h = url_hash(normalized)
+    limit = int(os.environ.get("RATE_LIMIT_SUMMARY", "5"))
+    ip = client_ip(request)
 
     # Cache lookup FIRST (no rate-limit charge for cached results)
     cached = await store.get_cached(h)
     if cached:
         logger.info("cache_hit hash=%s", h[:10])
-        return {"cached": True, "summary": cached}
+        peek_remaining, _ = await store.peek_rate(ip, "summarize", limit)
+        return {
+            "cached": True,
+            "summary": cached,
+            "rate_limit": {"limit": limit, "remaining": peek_remaining},
+        }
 
-    # Rate limit
-    limit = int(os.environ.get("RATE_LIMIT_SUMMARY", "5"))
-    ip = client_ip(request)
-    allowed, remaining = await store.check_rate(ip, "summarize", limit)
+    allowed, remaining, retry_after = await store.check_rate(ip, "summarize", limit)
     if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit reached ({limit} per hour). Please try again later.",
-        )
+        return rate_limit_response(limit, retry_after, "summarize")
 
     # Extract
     try:
@@ -153,19 +196,20 @@ async def summarize(payload: SummarizeRequest, request: Request):
     result = build_summary_payload(normalized, ai, article["meta"])
     await store.set_cached(h, normalized, result)
     logger.info("cache_store hash=%s remaining=%s", h[:10], remaining)
-    return {"cached": False, "summary": result}
+    return {
+        "cached": False,
+        "summary": result,
+        "rate_limit": {"limit": limit, "remaining": remaining},
+    }
 
 
 @api_router.post("/latest-updates")
 async def latest_updates(payload: LatestUpdatesRequest, request: Request):
     limit = int(os.environ.get("RATE_LIMIT_UPDATES", "5"))
     ip = client_ip(request)
-    allowed, _ = await store.check_rate(ip, "updates", limit)
+    allowed, remaining, retry_after = await store.check_rate(ip, "updates", limit)
     if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit reached ({limit} per hour). Please try again later.",
-        )
+        return rate_limit_response(limit, retry_after, "updates")
 
     exclude = None
     if payload.source_url:
@@ -183,7 +227,11 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
         raise HTTPException(status_code=502,
                             detail="Could not fetch latest updates. Please try again.")
 
-    return {"updates": updates, "fetched_at": datetime.now(timezone.utc).isoformat()}
+    return {
+        "updates": updates,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "rate_limit": {"limit": limit, "remaining": remaining},
+    }
 
 
 # ---- App wiring ------------------------------------------------------------

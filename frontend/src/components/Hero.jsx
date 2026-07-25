@@ -2,7 +2,33 @@ import { useState } from "react";
 import { ArrowRight, Link2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 
-export function Hero({ onSubmit, isLoading, defaultUrl = "" }) {
+function RateBudget({ rateStatus }) {
+    if (!rateStatus || typeof rateStatus.remaining !== "number") {
+        return <span data-testid="rate-budget">5 free / hour</span>;
+    }
+    const { remaining, limit } = rateStatus;
+    const low = remaining <= 1;
+    const empty = remaining === 0;
+    return (
+        <span
+            data-testid="rate-budget"
+            className={
+                empty
+                    ? "text-destructive"
+                    : low
+                      ? "text-amber-500"
+                      : "text-muted-foreground"
+            }
+            title="New summaries per hour. Cached repeats don't count."
+        >
+            {empty
+                ? `0 / ${limit} left this hour`
+                : `${remaining} / ${limit} summaries left this hour`}
+        </span>
+    );
+}
+
+export function Hero({ onSubmit, isLoading, defaultUrl = "", rateStatus }) {
     const [url, setUrl] = useState(defaultUrl);
 
     const handle = (e) => {
@@ -152,6 +178,8 @@ export function Hero({ onSubmit, isLoading, defaultUrl = "" }) {
                     <span>PDF · DOCX · Share</span>
                     <span>·</span>
                     <span>Cached for 24 h</span>
+                    <span>·</span>
+                    <RateBudget rateStatus={rateStatus} />
                 </motion.div>
             </div>
         </section>
