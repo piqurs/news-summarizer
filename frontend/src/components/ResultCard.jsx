@@ -14,6 +14,7 @@ import { ConfidenceBadge } from "./ConfidenceBadge";
 import { ExportShare } from "./ExportShare";
 import { LanguageToggle } from "./LanguageToggle";
 import { LatestUpdates } from "./LatestUpdates";
+import { SentimentBias } from "./SentimentBias";
 import { translateArticle } from "../lib/api";
 
 function fmt(iso) {
@@ -250,6 +251,15 @@ export function ResultCard({ summary, cached }) {
                     </motion.div>
                 </div>
 
+                {/* Sentiment & Bias Analysis (5) */}
+                <motion.div
+                    variants={stagger}
+                    custom={5}
+                    className="mt-10"
+                >
+                    <SentimentBias data={displayed.sentiment_and_bias} />
+                </motion.div>
+
                 {/* Recommended Actions */}
                 <motion.div
                     variants={stagger}
@@ -260,7 +270,7 @@ export function ResultCard({ summary, cached }) {
                     <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="label-eyebrow flex items-center gap-2">
                             <Compass className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            5 · Recommended Actions
+                            6 · Recommended Actions
                         </div>
                         <span className="text-[10px] font-mono-alt uppercase tracking-widest
                             text-muted-foreground border border-dashed border-border rounded-full px-2 py-0.5">
@@ -316,7 +326,7 @@ export function ResultCard({ summary, cached }) {
                     className="mt-10"
                     data-testid="five-w-one-h"
                 >
-                    <div className="label-eyebrow">7 · 5W1H</div>
+                    <div className="label-eyebrow">8 · 5W1H</div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {wKeys.map((k) => (
                             <div key={k} className="cell">
@@ -338,7 +348,7 @@ export function ResultCard({ summary, cached }) {
                     className="mt-10"
                     data-testid="references"
                 >
-                    <div className="label-eyebrow">8 · References</div>
+                    <div className="label-eyebrow">9 · References</div>
                     <ul className="mt-4 divide-y divide-border border border-border rounded-md">
                         {(displayed.references || []).map((r, i) => (
                             <li key={i} className="p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
@@ -373,7 +383,7 @@ export function ResultCard({ summary, cached }) {
                     custom={10}
                     className="mt-10 border-t border-border pt-6 flex items-start gap-3"
                 >
-                    <div className="label-eyebrow shrink-0 pt-1">9 · Confidence</div>
+                    <div className="label-eyebrow shrink-0 pt-1">10 · Confidence</div>
                     <p className="text-sm text-muted-foreground leading-relaxed">
                         <span className="text-foreground font-medium">
                             {displayed.confidence_level?.level}

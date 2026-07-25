@@ -31,3 +31,8 @@ export async function translateArticle(url, target) {
     const { data } = await client.post("/translate", { url, target });
     return data;
 }
+
+export async function getRecent(limit = 6) {
+    const { data } = await client.get("/recent", { params: { limit } });
+    return data;
+}

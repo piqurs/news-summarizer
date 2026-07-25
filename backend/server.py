@@ -88,6 +88,12 @@ def build_summary_payload(url: str, ai: dict[str, Any],
             "immediate": [], "short_term": [], "long_term": [],
             "disclaimer": "These are AI-generated recommendations.",
         }),
+        "sentiment_and_bias": ai.get("sentiment_and_bias", {
+            "tone": "Neutral",
+            "tone_explanation": "",
+            "bias_indicators": [],
+            "disclaimer": "AI-generated analysis, not a factual claim about the publisher.",
+        }),
         "five_w_one_h": ai.get("five_w_one_h", {}),
         "references": ai.get("references", []),
         "confidence_level": ai.get("confidence_level",
@@ -146,6 +152,15 @@ async def rate_status(request: Request):
             "retry_after_seconds": u_retry,
         },
     }
+
+
+@api_router.get("/recent")
+async def recent(limit: int = 6):
+    """Global feed of the most recent still-fresh cached summaries.
+    Purely reads the existing 24 h cache — never triggers new AI calls."""
+    limit = max(1, min(limit, 24))
+    items = await store.list_recent(limit=limit)
+    return {"items": items, "limit": limit}
 
 
 @api_router.post("/summarize")

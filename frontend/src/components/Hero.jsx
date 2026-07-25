@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, Link2, Sparkles } from "lucide-react";
+import { ArrowRight, Link2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 function RateBudget({ rateStatus }) {
@@ -69,20 +69,6 @@ export function Hero({ onSubmit, isLoading, defaultUrl = "", rateStatus }) {
             />
 
             <div className="relative mx-auto max-w-5xl px-6 lg:px-10 pt-20 pb-24 md:pt-28 md:pb-32">
-                <motion.div
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, ease: "easeOut" }}
-                    className="flex items-center gap-2 mb-6"
-                >
-                    <span className="inline-flex items-center gap-2 rounded-full
-                        border border-border bg-card/60 px-3 py-1 text-xs
-                        text-muted-foreground font-mono-alt">
-                        <Sparkles className="h-3 w-3" strokeWidth={2} />
-                        Powered by Claude Sonnet 4.5
-                    </span>
-                </motion.div>
-
                 <motion.h1
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -173,7 +159,7 @@ export function Hero({ onSubmit, isLoading, defaultUrl = "", rateStatus }) {
                         Learn more →
                     </button>
                     <span className="hidden sm:inline">·</span>
-                    <span>9 structured sections</span>
+                    <span>10 structured sections</span>
                     <span>·</span>
                     <span>PDF · DOCX · Share</span>
                     <span>·</span>

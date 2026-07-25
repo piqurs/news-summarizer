@@ -1,0 +1,36 @@
+{
+  "summary": "Full end-to-end verification of iteration-3 changes: (1) /api/summarize returns a valid sentiment_and_bias block with tone ∈ {Positive/Neutral/Negative/Mixed}, non-empty tone_explanation, list of bias_indicators (empty here — correctly no manufactured bias for the AP hub article), and disclaimer. (2) references sanitiser confirmed — every entry rendered has an http(s):// URL. (3) /api/translate target=en translates tone_explanation and disclaimer to English while preserving tone as the English literal (verified 'Neutral' identical across ID and EN payloads and EN tone_explanation reads English). (4) GET /api/recent?limit=6 returns the expected shape, newest-first ordering (verified by injecting an older-but-fresh row and checking position), excludes expired rows (verified by injecting a 25h-old row and confirming absence), and does NOT charge the summarize rate budget. Frontend: Claude Sonnet 4.5 badge gone from hero, '10 structured sections' chip present, About roadmap block removed, 'AI News Intelligence Platform' absent, new feature-sentiment-&-bias-analysis and feature-bilingual-(en-/-id) cards render. ResultCard shows a new sentiment-bias section (5) with tone card, bias indicators or fallback, and disclaimer footer with AI-generated badge. Downstream sections renumbered to 6·Recommended, 7·Latest Updates, 8·5W1H, 9·References, 10·Confidence. Recent-news card click issues exactly 1 POST /api/translate (target=id) and does NOT decrement the summarize rate budget (5==5 before/after). EN↔ID regression: EN click fires 1 translate call; ID back-toggle → 0 calls; EN re-toggle → 0 calls (client-side langCache holds).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3_sentiment_recent.py",
+    "/app/test_reports/pytest/iteration3_results.xml"
+  ],
+  "action_items": [
+    "No production fixes required. All 6 iteration-3 changes verified end-to-end."
+  ],
+  "critical_code_review_comments": [
+    "services._TRANSLATE_SYSTEM enforces tone preservation via the system prompt but no server-side hard guarantee — if a future model release strays and emits e.g. 'Positif', the EN payload will violate the contract. Consider a defensive post-translate sanitiser that copies sentiment_and_bias.tone from the source payload into the translated payload (same pattern already applied to article.original_url and confidence_level.level).",
+    "CacheAndRateLimit.list_recent() falls back to `r.get('created_at')` for `generated_at` when the payload.article.generated_at is missing. Since created_at is stored as an ISO string, this mixes formats (payload.article.generated_at is already an ISO string generated at summarize-time). Not a bug today but the frontend fmtRelative() parses via Date() so string mismatches could produce 'Invalid Date' silently.",
+    "RecentNews component uses `AnimatePresence initial={false}` around a single motion.div. When refreshKey bumps after a fresh summarize, the whole grid rerenders (no key change on the div so items animate individually — fine visually) but nothing indicates a stale list is being replaced. Consider a subtle loading indicator on refresh so users know the feed is updating.",
+    "SentimentBias.jsx sanitises tone with `TONE_STYLE[data.tone] ? data.tone : 'Neutral'` — good — but if the backend ever returns a translated Indonesian tone accidentally, the UI silently falls back to 'Neutral' which masks the real bug. Consider a dev-mode console.warn when tone is invalid.",
+    "ResultCard.jsx invokes translateArticle from BOTH the top-level Home (for recent-card clicks) and internally (for language toggle). The recent-card path passes summary through props while the toggle path writes to local langCache. If the two ever race (user clicks a recent card mid-toggle), Home's setState wins but ResultCard's local `lang` may still be 'en' with a stale langCache.en from a different article. Mitigated by the useEffect that resets langCache when `summary` prop changes; verify this covers all edge cases."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3_sentiment_recent.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all iteration-3 UI + regression checks passed)"},
+  "test_credentials": "N/A",
+  "seed_data_creation": "Reused the existing summary_cache row for https://apnews.com/hub/artificial-intelligence (already had sentiment_and_bias populated). Wiped translations.en once so the fresh EN translate path could be exercised. Rate_limit collection cleared before the run. Recent-endpoint ordering + expiry tests inject and then delete temporary hashes TEST_HASH_ORDER_OLDER and TEST_HASH_EXPIRED so no test data remains after the run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Base cached URL: https://apnews.com/hub/artificial-intelligence. bias_indicators for this URL is legitimately [] because the article is descriptive/institutional — the UI correctly shows the 'No notable bias indicators observed' fallback. If you want to exercise the populated-indicators UI, delete that cache row and summarize an opinion-heavy article; do NOT summarize BBC/Reuters/TechCrunch (blocked/422). The /api/recent endpoint reads from cache only; call /api/rate-status before and after any UI interaction to prove no rate-budget was burned. RATE_LIMIT_TRANSLATE=5/hour: my test run consumed 1 slot. Clear via: python3 -c \"from pymongo import MongoClient; import os; from dotenv import load_dotenv; load_dotenv('/app/backend/.env'); MongoClient(os.environ['MONGO_URL'])[os.environ['DB_NAME']].rate_limit.delete_many({})\"",
+  "rca of the issue": "N/A — no issues found."
+}

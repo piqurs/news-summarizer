@@ -165,6 +165,12 @@ You will receive a news article (in ANY language) and MUST return a single JSON 
     "long_term": ["1-3 practical steps"],
     "disclaimer": "These are AI-generated recommendations based only on the article's content."
   },
+  "sentiment_and_bias": {
+    "tone": "Positive | Neutral | Negative | Mixed — pick exactly one of these four English literals",
+    "tone_explanation": "one sentence explaining what drives that tone (specific language, framing, or facts in the article)",
+    "bias_indicators": ["array of 0 to 4 short strings, each grounded in a specific observation from THIS article — e.g. one-sided sourcing, loaded language, missing context that would materially change interpretation. If the article reads as balanced and fact-based with no notable indicators, return an EMPTY array — do NOT manufacture a bias claim to fill the section."],
+    "disclaimer": "AI-generated analysis, not a factual claim about the publisher."
+  },
   "five_w_one_h": {
     "who": "string",
     "what": "string",
@@ -183,11 +189,12 @@ You will receive a news article (in ANY language) and MUST return a single JSON 
 }
 
 Rules:
-- Language: Every human-readable string value MUST be written in Bahasa Indonesia (Indonesian), regardless of the source article's language. This includes title, category, executive_summary, key_points, main_issue.*, root_cause.*, recommended_actions.* items and disclaimer, five_w_one_h.*, references[].title/website, confidence_level.reason.
-- Keep the following as-is in their original form: URLs, publication_date, dates in references, and the confidence_level.level value which MUST remain exactly one of the literal English strings "High", "Medium", or "Low".
+- Language: Every human-readable string value MUST be written in Bahasa Indonesia (Indonesian), regardless of the source article's language. This includes title, category, executive_summary, key_points, main_issue.*, root_cause.*, recommended_actions.* items and disclaimer, five_w_one_h.*, references[].title/website, sentiment_and_bias.tone_explanation, sentiment_and_bias.bias_indicators[], sentiment_and_bias.disclaimer, confidence_level.reason.
+- Keep the following as-is in their original form: URLs, publication_date, dates in references, the confidence_level.level value which MUST remain exactly one of the literal English strings "High", "Medium", or "Low", AND the sentiment_and_bias.tone value which MUST remain exactly one of "Positive", "Neutral", "Negative", or "Mixed".
 - Keep proper nouns (people, organisations, places) natural — translate only when a standard Indonesian equivalent exists.
 - Never invent facts. If missing, say so in the relevant section (in Indonesian).
-- References must include the source article itself plus any other sources it explicitly cites.
+- REFERENCES RULE (STRICT): Every references[] entry MUST include a real, retrievable http(s):// URL that is either the source article itself or explicitly cited in the article body with a resolvable link. NEVER emit a reference entry with a missing, empty, "#", "unknown", or otherwise non-navigable url field. If a source is mentioned in the article but no retrievable URL exists for it, OMIT that reference entirely — fold the attribution into body text if needed, but do NOT create a reference card. When in doubt, omit.
+- Sentiment & Bias is a subjective analytical read. Only cite bias_indicators that are grounded in specific observable features of THIS article (loaded language, one-sided sourcing, missing counter-context). Do NOT speculate about the publisher's general reputation, political leaning, or editorial history. If the article is balanced and fact-based, return an EMPTY bias_indicators array.
 - Keep every string plain text — no markdown, no HTML.
 - Return ONLY the JSON object, nothing else."""
 
@@ -229,8 +236,16 @@ async def summarize_article(text: str, source_url: str,
         logger.error("Claude returned non-JSON: %s", raw[:500])
         raise RuntimeError(f"AI response could not be parsed: {e}") from e
 
-    # Ensure required top-level references include the source URL
+    # Ensure required top-level references include the source URL AND drop any
+    # entry without a real http(s):// URL — the UI cannot render bare titles as
+    # links and this is a repeated bug source.
     refs = data.get("references") or []
+    refs = [
+        r for r in refs
+        if isinstance(r, dict)
+        and isinstance(r.get("url"), str)
+        and r["url"].strip().lower().startswith(("http://", "https://"))
+    ]
     if not any(source_url in (r.get("url") or "") for r in refs):
         refs.insert(0, {
             "website": source_meta.get("sitename") or urlparse(source_url).netloc,
@@ -238,7 +253,22 @@ async def summarize_article(text: str, source_url: str,
             "date": source_meta.get("date"),
             "url": source_url,
         })
-        data["references"] = refs
+    data["references"] = refs
+
+    # Defensive default for sentiment_and_bias if the model omits or malforms it.
+    sab = data.get("sentiment_and_bias") or {}
+    tone = sab.get("tone")
+    if tone not in ("Positive", "Neutral", "Negative", "Mixed"):
+        tone = "Neutral"
+    data["sentiment_and_bias"] = {
+        "tone": tone,
+        "tone_explanation": sab.get("tone_explanation") or "",
+        "bias_indicators": [
+            s for s in (sab.get("bias_indicators") or []) if isinstance(s, str) and s.strip()
+        ],
+        "disclaimer": sab.get("disclaimer")
+        or "AI-generated analysis, not a factual claim about the publisher.",
+    }
 
     return data
 
@@ -252,8 +282,8 @@ _TRANSLATE_SYSTEM = """You translate structured JSON news summaries between Engl
 Rules:
 - You will receive a JSON object and a target language.
 - Return ONLY a JSON object with the SAME schema and keys. No prose, no fences.
-- Translate every human-readable string value: title, category, executive_summary, each item in key_points, main_issue.summary + significance, root_cause.causes items + certainty_note, recommended_actions.immediate/short_term/long_term items + disclaimer, five_w_one_h.who/what/when/where/why/how, each references[].title and references[].website, and confidence_level.reason.
-- DO NOT change: any url values, publication_date, generated_at, reading_time_minutes, confidence_level.level (keep as High/Medium/Low), or any references[].date.
+- Translate every human-readable string value: title, category, executive_summary, each item in key_points, main_issue.summary + significance, root_cause.causes items + certainty_note, recommended_actions.immediate/short_term/long_term items + disclaimer, five_w_one_h.who/what/when/where/why/how, each references[].title and references[].website, sentiment_and_bias.tone_explanation + each item in sentiment_and_bias.bias_indicators + sentiment_and_bias.disclaimer, and confidence_level.reason.
+- DO NOT change: any url values, publication_date, generated_at, reading_time_minutes, confidence_level.level (keep as High/Medium/Low), sentiment_and_bias.tone (keep as Positive/Neutral/Negative/Mixed), or any references[].date.
 - Keep proper nouns and organisation names natural (translate only where a standard translation exists).
 - Do not add or remove keys."""
 
@@ -459,6 +489,50 @@ class CacheAndRateLimit:
             {"hash": h},
             {"$set": {f"translations.{language}": translated}},
         )
+
+    async def list_recent(self, limit: int = 6) -> list[dict[str, Any]]:
+        """Return the most recent still-fresh cache entries (metadata only)
+        for the global 'Recent News (Last 24h)' feed. Newest first.
+
+        Only entries within the 24 h TTL are returned so expired cache rows
+        drop out naturally without a separate history store."""
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(hours=self.ttl_hours)).isoformat()
+        cursor = (
+            self.cache
+            .find(
+                {"created_at": {"$gte": cutoff}},
+                {
+                    "_id": 0,
+                    "hash": 1,
+                    "url": 1,
+                    "created_at": 1,
+                    "payload.article.title": 1,
+                    "payload.article.category": 1,
+                    "payload.article.site_name": 1,
+                    "payload.article.generated_at": 1,
+                    "payload.article.original_url": 1,
+                    "payload.article.reading_time_minutes": 1,
+                },
+            )
+            .sort("created_at", -1)
+            .limit(max(1, min(limit, 50)))
+        )
+        rows = await cursor.to_list(length=max(1, min(limit, 50)))
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            art = ((r.get("payload") or {}).get("article")) or {}
+            out.append({
+                "hash": r.get("hash"),
+                "url": art.get("original_url") or r.get("url"),
+                "title": art.get("title") or "Untitled",
+                "category": art.get("category") or "General",
+                "site_name": art.get("site_name")
+                    or urlparse(r.get("url", "")).netloc.replace("www.", ""),
+                "generated_at": art.get("generated_at") or r.get("created_at"),
+                "reading_time_minutes": art.get("reading_time_minutes") or 3,
+            })
+        return out
 
     async def set_cached(self, h: str, url: str, payload: dict[str, Any]) -> None:
         await self.cache.update_one(

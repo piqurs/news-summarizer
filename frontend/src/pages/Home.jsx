@@ -4,10 +4,11 @@ import { Clock4 } from "lucide-react";
 import { Navbar } from "../components/Navbar";
 import { Hero } from "../components/Hero";
 import { LoadingState } from "../components/LoadingState";
+import { RecentNews } from "../components/RecentNews";
 import { ResultCard } from "../components/ResultCard";
 import { About } from "../components/About";
 import { Footer } from "../components/Footer";
-import { getRateStatus, summarizeUrl } from "../lib/api";
+import { getRateStatus, summarizeUrl, translateArticle } from "../lib/api";
 
 export default function Home() {
     const [state, setState] = useState({
@@ -18,6 +19,8 @@ export default function Home() {
         retryAfterSeconds: 0,
     });
     const [rateStatus, setRateStatus] = useState(null); // { limit, remaining }
+    const [recentRefreshKey, setRecentRefreshKey] = useState(0);
+    const [loadingUrl, setLoadingUrl] = useState(null); // recent-news card in flight
     const inFlight = useRef(false);
 
     // Initial rate status on mount
@@ -26,6 +29,16 @@ export default function Home() {
             .then((r) => setRateStatus(r.summarize))
             .catch(() => setRateStatus(null));
     }, []);
+
+    const showSummary = (summary, cached) => {
+        setState({
+            status: "ready",
+            summary,
+            cached,
+            error: null,
+            retryAfterSeconds: 0,
+        });
+    };
 
     const handleSubmit = async (url) => {
         if (inFlight.current) return;
@@ -40,16 +53,12 @@ export default function Home() {
 
         try {
             const res = await summarizeUrl(url);
-            setState({
-                status: "ready",
-                summary: res.summary,
-                cached: !!res.cached,
-                error: null,
-                retryAfterSeconds: 0,
-            });
+            showSummary(res.summary, !!res.cached);
             if (res.rate_limit) setRateStatus(res.rate_limit);
             if (res.cached) toast.success("Loaded from cache");
             else toast.success("Summary ready");
+            // A fresh summary means the global recent feed has a new head.
+            if (!res.cached) setRecentRefreshKey((k) => k + 1);
         } catch (e) {
             const data = e?.response?.data;
             const status = e?.response?.status;
@@ -83,6 +92,27 @@ export default function Home() {
         }
     };
 
+    // Recent-news card click → load cached summary via translate(target=id).
+    // /api/translate for target='id' returns the primary cached payload
+    // without consuming any rate limit slot.
+    const handleOpenRecent = async (url) => {
+        if (loadingUrl) return;
+        setLoadingUrl(url);
+        try {
+            const res = await translateArticle(url, "id");
+            showSummary(res.summary, true);
+            toast.success("Loaded from cache");
+        } catch (e) {
+            const msg =
+                e?.response?.data?.detail ||
+                e?.message ||
+                "Could not load that cached summary.";
+            toast.error(msg);
+        } finally {
+            setLoadingUrl(null);
+        }
+    };
+
     useEffect(() => {
         if (state.status !== "idle") {
             const t = setTimeout(() => {
@@ -92,7 +122,7 @@ export default function Home() {
             }, 120);
             return () => clearTimeout(t);
         }
-    }, [state.status]);
+    }, [state.status, state.summary]);
 
     return (
         <div className="App min-h-screen flex flex-col">
@@ -168,6 +198,12 @@ export default function Home() {
                         </div>
                     </section>
                 )}
+
+                <RecentNews
+                    refreshKey={recentRefreshKey}
+                    onOpen={handleOpenRecent}
+                    loadingUrl={loadingUrl}
+                />
 
                 <About />
             </main>

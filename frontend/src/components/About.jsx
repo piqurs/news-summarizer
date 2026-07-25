@@ -11,6 +11,8 @@ import {
     FileText,
     Smartphone,
     SunMoon,
+    Scale,
+    Languages,
 } from "lucide-react";
 
 const FEATURES = [
@@ -39,9 +41,21 @@ const FEATURES = [
         span: "md:col-span-6",
     },
     {
+        icon: Scale,
+        title: "Sentiment & Bias Analysis",
+        blurb: "Tone read + observable bias indicators grounded in the article itself — never editorial speculation.",
+        span: "md:col-span-6",
+    },
+    {
         icon: Compass,
         title: "Recommended Actions",
         blurb: "Immediate, short-term & long-term — clearly labelled AI-generated.",
+        span: "md:col-span-6",
+    },
+    {
+        icon: Languages,
+        title: "Bilingual (EN / ID)",
+        blurb: "Indonesian by default. One-click English translation, cached so the toggle is free.",
         span: "md:col-span-6",
     },
     {
@@ -133,45 +147,6 @@ export function About() {
                                     </p>
                                 </motion.div>
                             ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Roadmap */}
-                <div className="mt-20 pt-12 border-t border-border">
-                    <div className="label-eyebrow">Roadmap</div>
-                    <div className="mt-6 grid gap-6 md:grid-cols-2">
-                        <div className="cell relative">
-                            <span className="absolute top-4 right-4 text-[10px] font-mono-alt
-                                uppercase tracking-widest text-emerald-500">
-                                ● Live
-                            </span>
-                            <div className="font-mono-alt text-xs text-muted-foreground">
-                                v1
-                            </div>
-                            <h3 className="mt-1 font-display text-xl font-medium">
-                                News Summarizer
-                            </h3>
-                            <p className="mt-2 text-sm text-muted-foreground">
-                                Article → structured summary with root cause, 5W1H,
-                                on-demand live updates and clean exports.
-                            </p>
-                        </div>
-                        <div className="cell relative">
-                            <span className="absolute top-4 right-4 text-[10px] font-mono-alt
-                                uppercase tracking-widest text-muted-foreground">
-                                ○ Planned
-                            </span>
-                            <div className="font-mono-alt text-xs text-muted-foreground">
-                                v2
-                            </div>
-                            <h3 className="mt-1 font-display text-xl font-medium">
-                                AI News Intelligence Platform
-                            </h3>
-                            <p className="mt-2 text-sm text-muted-foreground">
-                                Saved summaries, comparisons, sentiment & bias analysis,
-                                multilingual support and a dashboard.
-                            </p>
                         </div>
                     </div>
                 </div>

@@ -1,0 +1,99 @@
+import { Scale, Info } from "lucide-react";
+
+const TONE_STYLE = {
+    Positive: { dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
+    Neutral: { dot: "bg-muted-foreground", text: "text-muted-foreground" },
+    Negative: { dot: "bg-rose-500", text: "text-rose-600 dark:text-rose-400" },
+    Mixed: { dot: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
+};
+
+/**
+ * Section #5 in the result card. Purely presentational; the parent passes the
+ * currently-displayed language's sentiment_and_bias block.
+ */
+export function SentimentBias({ data }) {
+    if (!data) return null;
+    const tone = data.tone && TONE_STYLE[data.tone] ? data.tone : "Neutral";
+    const style = TONE_STYLE[tone];
+    const indicators = Array.isArray(data.bias_indicators) ? data.bias_indicators : [];
+
+    return (
+        <div data-testid="sentiment-bias" className="w-full">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="label-eyebrow flex items-center gap-2">
+                    <Scale className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    5 · Sentiment &amp; Bias Analysis
+                </div>
+                <span
+                    className="text-[10px] font-mono-alt uppercase tracking-widest
+                        text-muted-foreground border border-dashed border-border
+                        rounded-full px-2 py-0.5"
+                    data-testid="sentiment-bias-badge"
+                >
+                    AI-generated
+                </span>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-6">
+                {/* Tone */}
+                <div className="cell md:col-span-2" data-testid="sentiment-tone">
+                    <div className="text-xs font-semibold tracking-wide text-foreground mb-3">
+                        Overall tone
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className={`h-2 w-2 rounded-full ${style.dot}`} />
+                        <span className={`font-display text-lg font-medium ${style.text}`}>
+                            {tone}
+                        </span>
+                    </div>
+                    {data.tone_explanation && (
+                        <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                            {data.tone_explanation}
+                        </p>
+                    )}
+                </div>
+
+                {/* Bias indicators */}
+                <div
+                    className="cell md:col-span-4"
+                    data-testid="sentiment-bias-indicators"
+                >
+                    <div className="text-xs font-semibold tracking-wide text-foreground mb-3">
+                        Potential bias indicators
+                    </div>
+                    {indicators.length === 0 ? (
+                        <p className="text-sm text-muted-foreground leading-relaxed italic">
+                            No notable bias indicators observed — the article
+                            reads as balanced and fact-based within the scope of
+                            what it covers.
+                        </p>
+                    ) : (
+                        <ul className="space-y-2">
+                            {indicators.map((s, i) => (
+                                <li
+                                    key={i}
+                                    className="flex gap-3 text-sm leading-relaxed"
+                                >
+                                    <span className="font-mono-alt text-muted-foreground mt-0.5">
+                                        0{i + 1}
+                                    </span>
+                                    <span>{s}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            </div>
+
+            {data.disclaimer && (
+                <p
+                    className="mt-3 text-xs text-muted-foreground flex items-center gap-1"
+                    data-testid="sentiment-disclaimer"
+                >
+                    <Info className="h-3 w-3" strokeWidth={1.75} />
+                    {data.disclaimer}
+                </p>
+            )}
+        </div>
+    );
+}

@@ -45,7 +45,7 @@ export function LatestUpdates({ topic, sourceUrl }) {
                         <Radio className="h-4 w-4" strokeWidth={1.75} />
                     </span>
                     <div>
-                        <div className="label-eyebrow">6 · Latest Updates</div>
+                        <div className="label-eyebrow">7 · Latest Updates</div>
                         <p className="text-sm text-muted-foreground mt-1">
                             Fetch newer public reporting on this topic from trusted
                             sources.
