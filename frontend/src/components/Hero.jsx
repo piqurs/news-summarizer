@@ -8,8 +8,14 @@ export function Hero({ onSubmit, isLoading, defaultUrl = "" }) {
     const handle = (e) => {
         e.preventDefault();
         if (isLoading) return;
-        const trimmed = url.trim();
+        let trimmed = url.trim();
         if (!trimmed) return;
+        // Auto-add scheme so users can paste "example.com/article" without a
+        // browser-level url-validation error.
+        if (!/^https?:\/\//i.test(trimmed)) {
+            trimmed = "https://" + trimmed;
+            setUrl(trimmed);
+        }
         onSubmit(trimmed);
     };
 
@@ -99,12 +105,15 @@ export function Hero({ onSubmit, isLoading, defaultUrl = "" }) {
                         />
                         <input
                             id="article-url"
-                            type="url"
+                            type="text"
+                            inputMode="url"
+                            autoComplete="url"
+                            spellCheck="false"
                             required
                             disabled={isLoading}
                             value={url}
                             onChange={(e) => setUrl(e.target.value)}
-                            placeholder="https://reuters.com/world/..."
+                            placeholder="https://reuters.com/world/…  (scheme optional)"
                             className="w-full bg-transparent py-4 text-base
                                 placeholder:text-muted-foreground/60
                                 focus:outline-none disabled:opacity-60"
