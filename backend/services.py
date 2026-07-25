@@ -240,6 +240,86 @@ async def summarize_article(text: str, source_url: str,
     return data
 
 
+# --- Translation ----------------------------------------------------------
+
+_LANG_NAME = {"en": "English", "id": "Bahasa Indonesia"}
+
+_TRANSLATE_SYSTEM = """You translate structured JSON news summaries between English and Bahasa Indonesia.
+
+Rules:
+- You will receive a JSON object and a target language.
+- Return ONLY a JSON object with the SAME schema and keys. No prose, no fences.
+- Translate every human-readable string value: title, category, executive_summary, each item in key_points, main_issue.summary + significance, root_cause.causes items + certainty_note, recommended_actions.immediate/short_term/long_term items + disclaimer, five_w_one_h.who/what/when/where/why/how, each references[].title and references[].website, and confidence_level.reason.
+- DO NOT change: any url values, publication_date, generated_at, reading_time_minutes, confidence_level.level (keep as High/Medium/Low), or any references[].date.
+- Keep proper nouns and organisation names natural (translate only where a standard translation exists).
+- Do not add or remove keys."""
+
+
+async def translate_summary(summary: dict[str, Any], target: str
+                            ) -> dict[str, Any]:
+    """Translate a full summary payload to the target language ('en'|'id')."""
+    if target not in _LANG_NAME:
+        raise RuntimeError("Unsupported target language.")
+
+    key = os.environ["EMERGENT_LLM_KEY"]
+    tag = hashlib.sha256(
+        (summary.get("article", {}).get("original_url", "") + target).encode()
+    ).hexdigest()[:12]
+    chat = LlmChat(
+        api_key=key,
+        session_id=f"translate-{tag}",
+        system_message=_TRANSLATE_SYSTEM,
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(
+        max_tokens=4096,
+    )
+
+    prompt = (
+        f"TARGET_LANGUAGE: {_LANG_NAME[target]}\n\n"
+        f"SUMMARY_JSON:\n{json.dumps(summary, ensure_ascii=False)}"
+    )
+    response = await chat.send_message(UserMessage(text=prompt))
+    raw = response if isinstance(response, str) else str(response)
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        logger.error("translate returned non-JSON: %s", raw[:400])
+        raise RuntimeError(f"Translation response could not be parsed: {e}") from e
+
+    # Preserve non-translated fields defensively (never trust the model)
+    article = data.get("article") or {}
+    original_article = summary.get("article", {})
+    for key_preserve in (
+        "original_url", "publication_date", "generated_at",
+        "reading_time_minutes", "site_name",
+    ):
+        if key_preserve in original_article:
+            article[key_preserve] = original_article[key_preserve]
+    data["article"] = article
+
+    # References URLs preserved
+    src_refs = summary.get("references") or []
+    out_refs = data.get("references") or []
+    for i, r in enumerate(out_refs):
+        if i < len(src_refs):
+            r["url"] = src_refs[i].get("url", r.get("url"))
+            r["date"] = src_refs[i].get("date")
+    data["references"] = out_refs
+
+    # Confidence level (High/Medium/Low) — enforce
+    cl = data.get("confidence_level") or {}
+    src_cl = summary.get("confidence_level") or {}
+    cl["level"] = src_cl.get("level", cl.get("level", "Medium"))
+    data["confidence_level"] = cl
+
+    return data
+
+
+
 # --- Tavily live search ---------------------------------------------------
 
 _TRUSTED_DOMAINS = [

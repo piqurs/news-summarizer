@@ -24,6 +24,7 @@ from services import (  # noqa: E402
     looks_like_article_url,
     normalize_url,
     summarize_article,
+    translate_summary,
     url_hash,
 )
 
@@ -52,6 +53,11 @@ class SummarizeRequest(BaseModel):
 class LatestUpdatesRequest(BaseModel):
     topic: str = Field(..., min_length=3, max_length=400)
     source_url: Optional[str] = None
+
+
+class TranslateRequest(BaseModel):
+    summary: dict = Field(..., description="A full summary payload")
+    target: str = Field(..., pattern="^(en|id)$")
 
 
 # ---- Helpers ---------------------------------------------------------------
@@ -230,6 +236,30 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
     return {
         "updates": updates,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "rate_limit": {"limit": limit, "remaining": remaining},
+    }
+
+
+@api_router.post("/translate")
+async def translate(payload: TranslateRequest, request: Request):
+    limit = int(os.environ.get("RATE_LIMIT_TRANSLATE", "5"))
+    ip = client_ip(request)
+    allowed, remaining, retry_after = await store.check_rate(ip, "translate", limit)
+    if not allowed:
+        return rate_limit_response(limit, retry_after, "translate")
+
+    try:
+        translated = await translate_summary(payload.summary, payload.target)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.exception("translate failed")
+        raise HTTPException(status_code=503,
+                            detail=f"Translation service temporarily unavailable: {e}")
+
+    return {
+        "summary": translated,
+        "target": payload.target,
         "rate_limit": {"limit": limit, "remaining": remaining},
     }
 
