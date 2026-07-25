@@ -1,0 +1,109 @@
+{
+  "theme_strategy": "Minimalist Mono + Subtle Accent (Linear-inspired). Must support seamless Light and Dark modes. Dark mode should feel like a premium command center (almost black, stark white text, 1px strokes). Light mode should be clinical, precise, and crisp (off-white, 1px grey strokes).",
+  "typography": {
+    "strategy": "Swiss Brutalist meets Old Money Tech. Reject default generic sans-serifs.",
+    "heading_font": "Cabinet Grotesk (Fallback: Outfit or Space Grotesk is forbidden, so use Clash Display or Outfit)",
+    "body_font": "IBM Plex Sans (Fallback: JetBrains Mono for data/stats)",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-none font-medium",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-medium",
+      "h3": "text-xl sm:text-2xl tracking-tight font-medium",
+      "body": "text-base leading-relaxed text-muted-foreground",
+      "labels": "text-xs tracking-[0.2em] uppercase font-semibold text-muted-foreground"
+    }
+  },
+  "colors": {
+    "dark_mode": {
+      "background": "#09090B",
+      "surface": "#121214",
+      "border": "rgba(255, 255, 255, 0.1)",
+      "text_primary": "#FFFFFF",
+      "text_secondary": "rgba(255, 255, 255, 0.6)",
+      "accent": "#3B82F6",
+      "accent_glow": "rgba(59, 130, 246, 0.2)"
+    },
+    "light_mode": {
+      "background": "#FAFAFA",
+      "surface": "#FFFFFF",
+      "border": "rgba(0, 0, 0, 0.1)",
+      "text_primary": "#111827",
+      "text_secondary": "rgba(0, 0, 0, 0.6)",
+      "accent": "#2563EB",
+      "accent_glow": "rgba(37, 99, 235, 0.15)"
+    },
+    "rules": [
+      "Never use pure black (#000000) or pure white (#FFFFFF) for broad backgrounds. Always tint slightly.",
+      "Use Accent sparingly. Mostly monochrome UI. Accent is reserved for the primary CTA, active states, and subtle glows.",
+      "Avoid large blocks of filled color. Use 1px borders and empty space to define boundaries."
+    ]
+  },
+  "visual_enhancers": {
+    "surface_strategy": "The 'Tracing Beam' / Grid Borders look. Cards should have no box-shadow in dark mode, only a crisp 1px border. In light mode, a very diffuse, soft shadow is acceptable.",
+    "glassmorphism": "Use only for the sticky navigation header. Dark: bg-black/60 backdrop-blur-xl border-b border-white/10. Light: bg-white/70 backdrop-blur-xl border-b border-black/10.",
+    "gradients": "No heavy full-screen gradients. Use a subtle CSS radial-gradient mesh at the very top of the hero section (e.g., a faint blue/white glow fading into the background).",
+    "borders": "1px crisp borders on everything. Buttons should have an inner border to mimic a physical 'tactile' edge."
+  },
+  "grids_and_layouts": {
+    "spacing_system": "Generous spacing. Use p-8 or p-12 for main sections. p-6 for cards. gap-6 or gap-8 for grids.",
+    "about_section": "MODE A: The 'Tetris' Grid (Bento Box). Asymmetrical layout of feature cards. Mix square (col-span-4), tall (col-span-4 row-span-2), and wide (col-span-8) blocks.",
+    "result_card": "MODE B: High Density Grid. Data-heavy layout. Executive Summary spans full width. 5W1H and Key Points in a strict 2-column or 3-column grid. Tight gap-4. Every piece of data is enclosed in a subtle bordered cell."
+  },
+  "component_specifics": {
+    "hero_url_input": "Massive, center-aligned or optical left-aligned input field. text-xl or text-2xl. Minimal background. 1px border that lights up with the accent color and a soft glow on focus. Contains the 'Summarize' primary button inside or right next to it.",
+    "primary_button": "Sleek, not pill-shaped. max 6px border-radius. In dark mode, solid white text on a very dark grey background with a white/20 border, transitioning to a subtle accent glow on hover.",
+    "secondary_button": "Transparent background, 1px border, text color dims. Hover: text color brightens, border color brightens.",
+    "result_card_sections": [
+      "1. Article Info: Small, monospace-like meta row.",
+      "2. Executive Summary: Large text, h3 size, taking prominence.",
+      "3. Grid: Key Points (list), Main Issue (highlighted box), Root Cause (box), Actions (ordered list), 5W1H (table or grid of mini-cards).",
+      "4. Confidence Level: A tiny pill badge (Green/Yellow/Red dot + text) positioned at the top right of the card.",
+      "5. Latest Updates: Hidden by default, toggled via a 'Show Latest Updates' secondary button that expands smoothly."
+    ],
+    "export_share_group": "A tight flex row of small icon-only or icon+text buttons (Copy, PDF, DOCX, Share) situated at the bottom or top right of the result card.",
+    "loading_state": "Avoid generic spinners. Use a staggered opacity animation on a skeleton or a sleek progress bar that moves left to right with friendly text ('Analyzing root cause...', 'Extracting insights...')."
+  },
+  "motion": {
+    "transitions": "Use specific transitions. E.g., transition-colors duration-200, transition-transform duration-300.",
+    "entrance": "Staggered fade-up for Bento grid cards and Result Card sections. Use framer-motion.",
+    "hover": "Subtle -translate-y-[2px] on interactive cards. No heavy scaling."
+  },
+  "accessibility": {
+    "contrast": "Ensure all text meets APCA/WCAG standards. Do not use grey text on grey backgrounds.",
+    "focus": "All buttons and inputs MUST have a clear focus ring (focus:ring-2 focus:ring-accent focus:outline-none).",
+    "testing": "All interactive elements MUST include a data-testid attribute (e.g., data-testid='summarize-button', data-testid='url-input').",
+    "theme_toggle": "Must be accessible by keyboard, with clear aria-labels."
+  },
+  "media_and_icons": {
+    "icons": "lucide-react. Keep stroke width to 1.5 or 2 for a crisp, engineered look.",
+    "images": "No heavy photography required. The UI is the art. Use pure CSS patterns (dots, grids) for empty states or backgrounds if needed."
+  },
+  "instructions_to_main_agent": [
+    "Build this as a single-page React app (e.g., using standard React + Vite + Tailwind, or Next.js if configured, but stick to standard React conventions for the given environment).",
+    "Implement light and dark mode using Tailwind's 'dark' class strategy. Include a toggle in the header.",
+    "Use Shadcn UI components for complex interactions (Dropdowns, Tabs if needed), but heavily strip their default Vercel-look borders and customize them to fit this stark, Linear-style aesthetic.",
+    "Do NOT use HTML <input type='date'> or <select>. Use Shadcn.",
+    "Use Framer Motion for the loading state and the expansion of the 'Latest Updates' section.",
+    "Ensure the hero section is visually striking yet purely functional. The URL input is the star.",
+    "Make sure to mock the AI summarization process. Add a setTimeout or similar to simulate the 5-10 second loading phase so the user can see the elegant loading animations.",
+    "When formatting the 'Recommended Actions', clearly label them as 'AI-generated' per the prompt.",
+    "Do not use generic font families like Inter. Apply Cabinet Grotesk (or similar) for headings and IBM Plex Sans for body in the CSS.",
+    "Ensure responsive design. The BENTO grid on mobile must stack to 1 column."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file. This disrupts the human natural reading flow of text.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Create new components that match the style and conventions of existing components when needed.",
+    "Use sonner for toasts. Sonner component are located in /app/src/components/ui/sonner.tsx"
+  ]
+}
