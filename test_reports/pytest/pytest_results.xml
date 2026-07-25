@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="14" time="148.675" timestamp="2026-07-25T06:33:22.839262+00:00" hostname="agent-env-399c3323-ee30-4aa3-88dd-968fe46160cb"><testcase classname="tests.test_news_summarizer_api.TestSummarizeCache" name="test_a_first_call_returns_fresh_summary" time="46.707" /><testcase classname="tests.test_news_summarizer_api.TestUrlValidation" name="test_invalid_urls_return_400[not-a-url]" time="1.423" /><testcase classname="tests.test_news_summarizer_api.TestUrlValidation" name="test_invalid_urls_return_400[ftp://example.com/article]" time="0.998" /><testcase classname="tests.test_news_summarizer_api.TestUrlValidation" name="test_invalid_urls_return_400[http://localhost:3000/article]" time="0.058" /><testcase classname="tests.test_news_summarizer_api.TestUrlValidation" name="test_invalid_urls_return_400[https://example.com/login]" time="0.095" /><testcase classname="tests.test_news_summarizer_api.TestUrlValidation" name="test_invalid_urls_return_400[https://cnn.com/story.pdf]" time="0.088" /><testcase classname="tests.test_news_summarizer_api.TestUrlValidation" name="test_invalid_urls_return_400[https://reuters.com/image.jpg]" time="0.077" /><testcase classname="tests.test_news_summarizer_api.TestSummarizeRateLimit" name="test_a_consume_remaining_budget" time="135.148" /><testcase classname="tests.test_news_summarizer_api.TestSummarizeCache" name="test_b_same_url_hits_cache" time="30.367" /><testcase classname="tests.test_news_summarizer_api.TestSummarizeCache" name="test_c_url_normalization_hits_same_cache" time="0.087" /><testcase classname="tests.test_news_summarizer_api.TestHealth" name="test_health" time="15.019"><failure message="requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='news-digest-73.preview.emergentagent.com', port=443): Read timed out. (read timeout=15)">/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1415: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:330: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:291: in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/socket.py:718: in readinto
+    return self._sock.recv_into(b)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/ssl.py:1314: in recv_into
+    return self.read(nbytes, buffer)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/ssl.py:1166: in read
+    return self._sslobj.read(len, buffer)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TimeoutError: The read operation timed out
+
+The above exception was the direct cause of the following exception:
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:696: in send
+    resp = conn.urlopen(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:842: in urlopen
+    retries = retries.increment(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/retry.py:498: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/util/util.py:39: in reraise
+    raise value
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:536: in _make_request
+    self._raise_timeout(err=e, url=url, timeout_value=read_timeout)
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:367: in _raise_timeout
+    raise ReadTimeoutError(
+E   urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='news-digest-73.preview.emergentagent.com', port=443): Read timed out. (read timeout=15)
+
+During handling of the above exception, another exception occurred:
+tests/test_news_summarizer_api.py:20: in test_health
+    r = api_client.get(f"{base_url}/api/health", timeout=15)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:671: in get
+    return self.request("GET", url, params=params, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:651: in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:784: in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:742: in send
+    raise ReadTimeout(e, request=request)
+E   requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='news-digest-73.preview.emergentagent.com', port=443): Read timed out. (read timeout=15)</failure></testcase><testcase classname="tests.test_news_summarizer_api.TestSummarizeRateLimit" name="test_b_sixth_call_returns_429" time="0.110" /><testcase classname="tests.test_news_summarizer_api.TestLatestUpdates" name="test_a_returns_updates_list" time="0.615" /><testcase classname="tests.test_news_summarizer_api.TestLatestUpdates" name="test_b_rate_limit" time="4.890" /></testsuite></testsuites>

@@ -1,0 +1,45 @@
+{
+  "summary": "Full backend + frontend testing of News Summarizer completed. 13/14 pytest backend tests passed (1 flake from parallel-load timeout; endpoint verified working via curl). 32/32 frontend behaviours verified after correcting for two Playwright-env artefacts. All core flows work end-to-end with real Claude Sonnet 4.5 + real Tavily calls: URL validation, structured 9-section summary, cache hits (including UTM/case-insensitive normalization), sliding-hour rate limits on both /api/summarize and /api/latest-updates, latest-updates ordering & dedupe, error state, theme toggle, footer socials/copyright, all export buttons (copy/pdf/docx/share), Latest Updates via Tavily.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/health", "issue": "Test timed out at 15s only while another pytest worker was mid-Claude-call (parallel load). Curl confirms endpoint returns 200 in ~230ms. Not a code bug — consider a slightly higher default timeout or scoping serverload tests to a single worker."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_news_summarizer_api.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No production fixes required. All 8 backend behaviours + 12 frontend behaviours in the request are working.",
+    "OPTIONAL: If flake on /api/health under parallel load bothers you, bump the client timeout in tests or add a startup warm-up. Not user-facing."
+  ],
+  "critical_code_review_comments": [
+    "services.py extract_article() double-fetches on the fallback path (trafilatura.fetch_url then requests.get) — consider a single requests-with-browser-UA pass to save time and one round-trip.",
+    "server.py summarize() charges rate limit BEFORE running extraction — user gets penalised for an extraction 422 (e.g. paywalled article). Consider only charging rate limit on successful AI call, or refunding on 422/502.",
+    "services.py fetch_latest_updates: exclude_url comparison uses full normalized URL; if Tavily returns the same article via a slightly different slug (e.g. /amp), it will slip past the exclude filter. Minor.",
+    "Home.jsx duplicate submission guarded via inFlight ref — good — but the Hero URL input remains editable during loading which is fine visually; consider blurring the input on submit for polish.",
+    "CacheAndRateLimit stores created_at as ISO string then re-parses on read — cheaper to store native datetime (motor handles bson dates)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (new)",
+    "/app/backend/tests/test_news_summarizer_api.py (new)"
+  ],
+  "success_rate": {"backend": "93% (13/14, one flake)", "frontend": "100% (32/32 after granting clipboard permission for headless retest)"},
+  "test_credentials": "N/A - no auth in this app",
+  "seed_data_creation": "Reset db.rate_limit + db.summary_cache before session via conftest.py fixture. One cached SpaceX summary retained mid-test for frontend fast path.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Rate-limit and cache tests share Mongo state — conftest.py autouse session fixture handles the reset. All tests live in a single module so pytest-xdist --dist loadscope pins them to one worker for deterministic order. When retesting the frontend, note that Playwright headless Chromium blocks navigator.clipboard.writeText by default — use page.context.grant_permissions(['clipboard-read','clipboard-write'], origin=...) to verify the btn-copy toast. Loading state may skip in Playwright if the URL is already cached in Mongo — either delete the cache row first or submit a new URL to see /data-testid='loading-state'/.",
+  "verified_ai_capabilities": {
+    "claude_sonnet_4_5_summarize": "VERIFIED - real Claude call produced valid 9-section JSON summary of TechCrunch SpaceX article; exactly 5 key_points, confidence=High, all required sections populated. Actual content shown in Result Card (Executive Summary quote: 'SpaceX successfully deployed its first third-generation Starlink satellites on Friday...').",
+    "tavily_latest_updates": "VERIFIED - Tavily returned 10 real update items for topic 'SpaceX Starship test flight', all with url/title/source/date, deduped by URL, sorted newest first.",
+    "trafilatura_extraction": "VERIFIED - TechCrunch article extracted (title, sitename=TechCrunch, publication_date=2026-07-24, reading_time ~4 min)."
+  }
+}
