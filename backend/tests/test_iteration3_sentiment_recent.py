@@ -8,7 +8,7 @@
    each bias_indicator and disclaimer, but PRESERVES `tone` as the original
    English literal.
 4. GET /api/recent?limit=6 returns items with the expected shape, newest
-   first, only entries within the 24h TTL — expired rows drop out.
+   first, only entries within the 12h TTL — expired rows drop out.
 
 The AP News hub article is used as the base fixture (already cached during
 prior smoke testing). Rate-limit is cleared per-module for determinism.
@@ -290,7 +290,7 @@ class TestRecentEndpoint:
 
     def test_recent_excludes_expired_rows(self, api_client, base_url):
         """Inject a cache row 25h old and verify it is NOT returned by
-        /api/recent (24h TTL). Then delete it."""
+        /api/recent (12h TTL). Then delete it."""
         client, db = _mongo()
         try:
             expired_at = (datetime.now(timezone.utc)
@@ -316,7 +316,7 @@ class TestRecentEndpoint:
                 upsert=True,
             )
 
-            r = api_client.get(f"{base_url}/api/recent?limit=24", timeout=15)
+            r = api_client.get(f"{base_url}/api/recent?limit=12", timeout=15)
             assert r.status_code == 200
             titles = [it["title"] for it in r.json()["items"]]
             assert marker_title not in titles, (

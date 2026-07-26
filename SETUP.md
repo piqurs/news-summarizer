@@ -198,7 +198,7 @@ doesn't, open that URL manually.
    scraping). The result renders in **Bahasa Indonesia** by default.
 3. Click the **EN** pill on the result card — the summary translates. Toggle
    back to **ID**, it's instant (client cache).
-4. Scroll down to **Recent News · Last 24h** — your run should already
+4. Scroll down to **Recent News · Last 12h** — your run should already
    appear as a card.
 5. Click **Show Latest Updates** at the bottom of the Recommended Actions
    section — Tavily fetches live news on the same topic.
@@ -232,7 +232,7 @@ do). Try a different source — AP News, Al Jazeera, Ars Technica and most
 regional sites work.
 
 **"Please summarize it first" on Recent News click**
-The cached row has expired (24 h TTL). Just paste the URL again.
+The cached row has expired (12). Just paste the URL again.
 
 **Mongo connection error**
 Ensure `mongod` is running (`brew services list` on Mac,
@@ -258,7 +258,7 @@ pages/Home.jsx                 Top-level state + composition
 components/Hero.jsx            URL input + rate-limit budget chip
 components/ResultCard.jsx      Sections 1–10 of the analysis
 components/SentimentBias.jsx   Section 5 (tone + bias indicators)
-components/RecentNews.jsx      "Last 24h" global cache feed
+components/RecentNews.jsx      "Last 12h" global cache feed
 components/LatestUpdates.jsx   On-demand Tavily section
 components/LanguageToggle.jsx  EN | ID pill
 components/ExportShare.jsx     Copy / PDF / Word / Share
@@ -277,7 +277,7 @@ lib/exporters.js               PDF (jspdf) + Word (docx) generators
 }
 ```
 
-TTL is 24 h — the 24-h window is enforced in code, not by Mongo indexes, so
+TTL is 12 h — the 12-h window is enforced in code, not by Mongo indexes, so
 expired rows physically remain until overwritten but are ignored by all
 reads.
 

@@ -162,7 +162,7 @@ export function Hero({ onSubmit, isLoading, defaultUrl = "", rateStatus }) {
                     <span>·</span>
                     <span>PDF · DOCX · Share</span>
                     <span>·</span>
-                    <span>Cached for 24 h</span>
+                    <span>Cached for 12 h</span>
                     <span>·</span>
                     <RateBudget rateStatus={rateStatus} />
                 </motion.div>

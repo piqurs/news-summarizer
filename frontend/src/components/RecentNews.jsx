@@ -13,8 +13,8 @@ function fmtRelative(iso) {
         if (mins < 1) return "just now";
         if (mins < 60) return `${mins}m ago`;
         const hours = Math.floor(mins / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
+        if (hours < 12) return `${hours}h ago`;
+        const days = Math.floor(hours / 12);
         return `${days}d ago`;
     } catch {
         return "";
@@ -23,7 +23,7 @@ function fmtRelative(iso) {
 
 /**
  * Global feed of the most recent still-fresh cached summaries. Purely reads
- * the existing 24 h cache — clicking a card triggers `onOpen(url)` which the
+ * the existing 12 h cache — clicking a card triggers `onOpen(url)` which the
  * parent uses to load the cached summary into the main result card. No AI is
  * called and no rate limit is consumed by this component or its clicks.
  */
@@ -60,7 +60,7 @@ export function RecentNews({ refreshKey = 0, onOpen, loadingUrl }) {
                     <div>
                         <div className="label-eyebrow flex items-center gap-2">
                             <Newspaper className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            Recent News · Last 24h
+                            Recent News · Last 12h
                         </div>
                         <h2
                             className="mt-2 font-display text-2xl sm:text-3xl

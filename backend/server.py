@@ -24,6 +24,7 @@ from services import (  # noqa: E402
     looks_like_article_url,
     normalize_url,
     summarize_article,
+    synthesize_delta,
     translate_summary,
     url_hash,
 )
@@ -157,8 +158,8 @@ async def rate_status(request: Request):
 @api_router.get("/recent")
 async def recent(limit: int = 6):
     """Global feed of the most recent still-fresh cached summaries.
-    Purely reads the existing 24 h cache — never triggers new AI calls."""
-    limit = max(1, min(limit, 24))
+    Purely reads the existing 12 h cache — never triggers new AI calls."""
+    limit = max(1, min(limit, 12))
     items = await store.list_recent(limit=limit)
     return {"items": items, "limit": limit}
 
@@ -237,29 +238,67 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
 
     exclude = None
     entities: list = []
+    baseline: dict = {}
+    h = None
+
     if payload.source_url:
         try:
             exclude = normalize_url(payload.source_url)
-            cached_summary = await store.get_cached(url_hash(exclude), "id")
+            h = url_hash(exclude)
+
+            # 1) Cek cache delta 12 jam dulu — kalau ada, skip Tavily+Claude sepenuhnya
+            cached_delta = await store.get_cached_delta(h)
+            if cached_delta:
+                return cached_delta
+
+            # 2) Ambil baseline dari cache summary utama (title, entities, dll)
+            cached_summary = await store.get_cached(h, "id")
             if cached_summary:
+                article_meta = cached_summary.get("article", {})
                 entities = cached_summary.get("key_entities") or []
+                baseline = {
+                    "source_url": exclude,
+                    "title": article_meta.get("title") or cached_summary.get("title"),
+                    "publication_date": (
+                        article_meta.get("publication_date")
+                        or cached_summary.get("publication_date")
+                    ),
+                    "key_entities": entities,
+                    "key_points": cached_summary.get("key_points") or [],
+                    "main_issue": cached_summary.get("main_issue") or {},
+                }
         except ValueError:
             exclude = None
 
     try:
-        updates = fetch_latest_updates(payload.topic, exclude_url=exclude, entities=entities)
+        raw_candidates = fetch_latest_updates(payload.topic, exclude_url=exclude,
+                                               entities=entities)
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception:
-        logger.exception("latest-updates failed")
-        raise HTTPException(status_code=502,
-                            detail="Could not fetch latest updates. Please try again.")
+        raise HTTPException(status_code=502, detail=str(e))
 
-    return {
-        "updates": updates,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "rate_limit": {"limit": limit, "remaining": remaining},
-    }
+    # Tidak ada kandidat sama sekali — jangan buang Claude call buat sintesis
+    # "tidak ada apa-apa", langsung balikin has_update: false.
+    if not raw_candidates:
+        result = {
+            "has_update": False, "overview": "", "developments": [],
+            "timeline": [], "current_situation": None, "market_impact": None,
+            "confidence": {"level": "Low", "reason":
+                "Tidak ditemukan kandidat berita terkait dalam pencarian."},
+            "sources_used": [],
+        }
+        if h:
+            await store.set_cached_delta(h, result)
+        return result
+
+    try:
+        delta = await synthesize_delta(baseline, raw_candidates)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if h:
+        await store.set_cached_delta(h, delta)
+
+    return delta
 
 
 @api_router.post("/translate")

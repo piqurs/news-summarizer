@@ -363,6 +363,88 @@ _TRUSTED_DOMAINS = [
     "threads.net", "instagram.com", "tiktok.com",
 ]
 
+_DELTA_SYSTEM_PROMPT = """You are analyzing what has genuinely CHANGED since a news article was published — a delta, not a re-summary.
+
+You will receive:
+1. BASELINE — the original article's title, key entities, key points, main issue, and publication date. Treat this as everything the reader already knows.
+2. CANDIDATE ARTICLES — a list of more recent articles (title + short snippet + source + published date each), already filtered to mention the same named entities as the baseline.
+
+Your job: identify ONLY what these candidates reveal that is NEW relative to the baseline — new facts, new numbers, new statements, new official/company responses, new market reactions, new regulatory action, new consequences. Ignore any candidate that merely restates baseline facts in different words.
+
+Return a single JSON object matching this schema — no prose, no markdown fences:
+
+{
+  "has_update": true or false,
+  "overview": "string, 2-4 sentences in Bahasa Indonesia summarizing what has changed — empty string if has_update is false",
+  "developments": ["array of short strings, each ONE genuinely new development — empty array if none"],
+  "timeline": [{"date": "string or null", "event": "string"}],
+  "current_situation": "string or null — only fill if the candidates actually state a current status; otherwise null, do not infer",
+  "market_impact": "string or null — only fill if a candidate explicitly discusses market/investor/stakeholder impact; otherwise null",
+  "confidence": {"level": "High | Medium | Low", "reason": "string"},
+  "sources_used": ["array of the exact URLs, from the candidate list, that you actually drew information from — never include a URL you did not use"]
+}
+
+Rules:
+- Language: every human-readable string must be in Bahasa Indonesia. Keep confidence.level as exactly "High", "Medium", or "Low".
+- DATE ANCHORING (critical): a candidate only counts as an update if its published date is genuinely after the baseline's publication date. If a candidate's date is missing or unparseable, you may still use it but note the reduced certainty in confidence.reason. If a candidate's date is on or before the baseline date, discard it entirely.
+- Never repeat or re-explain baseline facts.
+- Never speculate or infer beyond what a candidate's snippet explicitly states. You only have short snippets, not full articles — if a snippet is too thin to state a concrete development, leave it out rather than guess.
+- SOURCE PRIORITY: prefer local Indonesian outlets with direct coverage (Kompas, Bisnis.com, Detik, Tempo, Antara) as primary evidence for Indonesia-specific events. Treat international wire coverage (Reuters, Bloomberg, CNBC, AP, BBC) as corroboration or global-impact context, not an automatic override of more specific local reporting.
+- Merge duplicate events reported by multiple candidates into one entry in "developments" — but list every source you drew from in "sources_used".
+- If no candidate contains a genuine post-baseline development, set has_update to false, overview to an empty string, developments to an empty array, and explain in confidence.reason that no significant change was found.
+- Every fact in "overview", "developments", "current_situation", and "market_impact" must be traceable to at least one URL in "sources_used"."""
+
+
+async def synthesize_delta(baseline: dict[str, Any],
+                            candidates: list[dict[str, Any]]
+                           ) -> dict[str, Any]:
+    """Call Claude to turn raw Tavily candidates into a genuine delta versus
+    the baseline article. Returns the parsed JSON dict."""
+    key = os.environ["EMERGENT_LLM_KEY"]
+    tag = hashlib.sha256(
+        (baseline.get("source_url", "") + str(len(candidates))).encode()
+    ).hexdigest()[:12]
+
+    chat = LlmChat(
+        api_key=key,
+        session_id=f"delta-{tag}",
+        system_message=_DELTA_SYSTEM_PROMPT,
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929").with_params(
+        max_tokens=2048,
+    )
+
+    prompt = (
+        f"BASELINE:\n{json.dumps(baseline, ensure_ascii=False)}\n\n"
+        f"CANDIDATE ARTICLES:\n{json.dumps(candidates, ensure_ascii=False)}"
+    )
+    response = await chat.send_message(UserMessage(text=prompt))
+    raw = response if isinstance(response, str) else str(response)
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        logger.error("delta synthesis returned non-JSON: %s", raw[:400])
+        raise RuntimeError(f"Delta synthesis could not be parsed: {e}") from e
+
+    # Defensive defaults — never trust the model to include every key.
+    data.setdefault("has_update", bool(data.get("developments")))
+    data.setdefault("overview", "")
+    data.setdefault("developments", [])
+    data.setdefault("timeline", [])
+    data.setdefault("current_situation", None)
+    data.setdefault("market_impact", None)
+    data.setdefault("sources_used", [])
+    conf = data.get("confidence") or {}
+    if conf.get("level") not in ("High", "Medium", "Low"):
+        conf["level"] = "Low"
+    conf.setdefault("reason", "")
+    data["confidence"] = conf
+
+    return data
 
 def fetch_latest_updates(topic: str, exclude_url: Optional[str] = None,
                           entities: Optional[list[str]] = None
@@ -455,7 +537,7 @@ class CacheAndRateLimit:
         self.db = db
         self.cache = db.summary_cache
         self.rate = db.rate_limit
-        self.ttl_hours = int(os.environ.get("CACHE_TTL_HOURS", "24"))
+        self.ttl_hours = int(os.environ.get("CACHE_TTL_HOURS", "12"))
 
     async def ensure_indexes(self) -> None:
         await self.cache.create_index("hash", unique=True)
@@ -503,12 +585,40 @@ class CacheAndRateLimit:
             {"hash": h},
             {"$set": {f"translations.{language}": translated}},
         )
+    
+    async def get_cached_delta(self, h: str) -> Optional[dict[str, Any]]:
+        """Return the cached Latest-Update delta if it's still within its own
+        12h freshness window (shorter than the 12h main summary cache, since
+        'what's new' goes stale faster than the summary itself)."""
+        doc = await self.cache.find_one({"hash": h}, {"_id": 0})
+        if not doc:
+            return None
+        delta = doc.get("latest_update_delta")
+        generated_at = doc.get("delta_generated_at")
+        if not delta or not generated_at:
+            return None
+        try:
+            generated_dt = datetime.fromisoformat(generated_at)
+        except ValueError:
+            return None
+        if datetime.now(timezone.utc) - generated_dt > timedelta(hours=12):
+            return None
+        return delta
+
+    async def set_cached_delta(self, h: str, delta: dict[str, Any]) -> None:
+        await self.cache.update_one(
+            {"hash": h},
+            {"$set": {
+                "latest_update_delta": delta,
+                "delta_generated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
 
     async def list_recent(self, limit: int = 6) -> list[dict[str, Any]]:
         """Return the most recent still-fresh cache entries (metadata only)
-        for the global 'Recent News (Last 24h)' feed. Newest first.
+        for the global 'Recent News (Last 12h)' feed. Newest first.
 
-        Only entries within the 24 h TTL are returned so expired cache rows
+        Only entries within the 12 h TTL are returned so expired cache rows
         drop out naturally without a separate history store."""
         cutoff = (datetime.now(timezone.utc)
                   - timedelta(hours=self.ttl_hours)).isoformat()

@@ -9,7 +9,7 @@ const TONE_STYLE = {
 };
 
 /**
- * Section #5 in the result card. Purely presentational; the parent passes the
+ * Section #6 in the result card. Purely presentational; the parent passes the
  * currently-displayed language's sentiment_and_bias block.
  */
 export function SentimentBias({ data }) {
@@ -23,7 +23,7 @@ export function SentimentBias({ data }) {
             <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="label-eyebrow flex items-center gap-2">
                     <Scale className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    5 · Sentiment &amp; Bias Analysis
+                    6 · Sentiment &amp; Bias Analysis
                 </div>
                 <Popover>
                     <PopoverTrigger asChild>

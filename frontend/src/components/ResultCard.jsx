@@ -253,26 +253,65 @@ export function ResultCard({ summary, cached }) {
                     </motion.div>
                 </div>
 
-                {/* Sentiment & Bias Analysis (5) */}
+                {/* 5W1H */}
                 <motion.div
                     variants={stagger}
                     custom={5}
+                    className="mt-10"
+                    data-testid="five-w-one-h"
+                >
+                    <div className="label-eyebrow">5 · 5W1H</div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {wKeys.map((k) => (
+                            <div key={k} className="cell">
+                                <div className="text-[10px] font-mono-alt uppercase tracking-widest text-muted-foreground">
+                                    {k}
+                                </div>
+                                <p className="mt-2 text-sm leading-relaxed">
+                                    {w[k] || "—"}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                </motion.div>
+
+                {/* Sentiment & Bias Analysis (6) */}
+                <motion.div
+                    variants={stagger}
+                    custom={6}
                     className="mt-10"
                 >
                     <SentimentBias data={displayed.sentiment_and_bias} />
                 </motion.div>
 
+                {/* Confidence explanation footer */}
+                <motion.div
+                    variants={stagger}
+                    custom={10}
+                    className="mt-10 border-t border-border pt-6 flex items-start gap-3"
+                >
+                    <div className="label-eyebrow shrink-0 pt-1">7 · Confidence</div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                        <span className="text-foreground font-medium">
+                            {displayed.confidence_level?.level}
+                        </span>
+                        {displayed.confidence_level?.reason
+                            ? ` — ${displayed.confidence_level.reason}`
+                            : ""}
+                    </p>
+                </motion.div>
+
                 {/* Recommended Actions */}
                 <motion.div
                     variants={stagger}
-                    custom={6}
+                    custom={8}
                     className="mt-10"
                     data-testid="recommended-actions"
                 >
                     <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="label-eyebrow flex items-center gap-2">
                             <Compass className="h-3.5 w-3.5" strokeWidth={1.75} />
-                            6 · Recommended Actions
+                            8 · Recommended Actions
                         </div>
                         <Popover>
                             <PopoverTrigger asChild>
@@ -324,43 +363,21 @@ export function ResultCard({ summary, cached }) {
                 </motion.div>
 
                 {/* Latest Updates */}
-                <motion.div variants={stagger} custom={7} className="mt-10">
+                <motion.div variants={stagger} custom={9} className="mt-10">
                     <LatestUpdates
                         topic={a.title || displayed.main_issue?.summary || ""}
                         sourceUrl={a.original_url}
                     />
                 </motion.div>
 
-                {/* 5W1H */}
-                <motion.div
-                    variants={stagger}
-                    custom={8}
-                    className="mt-10"
-                    data-testid="five-w-one-h"
-                >
-                    <div className="label-eyebrow">8 · 5W1H</div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {wKeys.map((k) => (
-                            <div key={k} className="cell">
-                                <div className="text-[10px] font-mono-alt uppercase tracking-widest text-muted-foreground">
-                                    {k}
-                                </div>
-                                <p className="mt-2 text-sm leading-relaxed">
-                                    {w[k] || "—"}
-                                </p>
-                            </div>
-                        ))}
-                    </div>
-                </motion.div>
-
                 {/* References */}
                 <motion.div
                     variants={stagger}
-                    custom={9}
+                    custom={10}
                     className="mt-10"
                     data-testid="references"
                 >
-                    <div className="label-eyebrow">9 · References</div>
+                    <div className="label-eyebrow">10 · References</div>
                     <ul className="mt-4 divide-y divide-border border border-border rounded-md">
                         {(displayed.references || []).map((r, i) => (
                             <li key={i} className="p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
@@ -387,23 +404,6 @@ export function ResultCard({ summary, cached }) {
                             </li>
                         ))}
                     </ul>
-                </motion.div>
-
-                {/* Confidence explanation footer */}
-                <motion.div
-                    variants={stagger}
-                    custom={10}
-                    className="mt-10 border-t border-border pt-6 flex items-start gap-3"
-                >
-                    <div className="label-eyebrow shrink-0 pt-1">10 · Confidence</div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                        <span className="text-foreground font-medium">
-                            {displayed.confidence_level?.level}
-                        </span>
-                        {displayed.confidence_level?.reason
-                            ? ` — ${displayed.confidence_level.reason}`
-                            : ""}
-                    </p>
                 </motion.div>
             </motion.div>
         </section>

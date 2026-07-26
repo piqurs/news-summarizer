@@ -62,11 +62,11 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 - **EN ↔ ID language toggle** on the result card. Only the currently-displayed
   language is fetched; toggling back and forth after the first translation
   makes zero network calls.
-- **Recent News (Last 24h)** — public feed of the last 6 cached summaries
+- **Recent News (Last 12h)** — public feed of the last 6 cached summaries
   sitting above the About section. Click a card to load the cached analysis
   into the main result card without any AI call or rate-limit charge.
 - Cache schema per URL hash stores `payload` (Indonesian) plus
-  `translations.<lang>` under a single document that shares the 24 h TTL;
+  `translations.<lang>` under a single document that shares the 12 h TTL;
   cache hits are free. Expired rows drop out of `/api/recent` naturally.
 - Tavily-powered Latest Updates section (deferred, chronological, deduped).
 - Per-IP sliding-hour rate limits (Mongo-backed): 5/h summarize, 5/h updates,
