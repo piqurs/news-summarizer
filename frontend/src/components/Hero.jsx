@@ -89,9 +89,8 @@ export function Hero({ onSubmit, isLoading, defaultUrl = "", rateStatus }) {
                     className="mt-6 max-w-2xl text-base md:text-lg text-muted-foreground
                         leading-relaxed"
                 >
-                    Paste a news article URL and instantly receive an AI-powered,
-                    structured summary with key insights, root-cause analysis, and
-                    the latest developments from trusted sources.
+                    Paste a news article URL and get the full picture in seconds — key insights, root-cause analysis
+                     and the latest developments from trusted sources, all structured and ready to act on.
                 </motion.p>
 
                 <motion.form

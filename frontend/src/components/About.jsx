@@ -53,12 +53,6 @@ const FEATURES = [
         span: "md:col-span-6",
     },
     {
-        icon: Languages,
-        title: "Bilingual (EN / ID)",
-        blurb: "Indonesian by default. One-click English translation, cached so the toggle is free.",
-        span: "md:col-span-6",
-    },
-    {
         icon: Radio,
         title: "Latest Updates",
         blurb: "On-demand live search across trusted publishers.",
@@ -88,12 +82,6 @@ const FEATURES = [
         blurb: "Reads beautifully from mobile to desktop.",
         span: "md:col-span-4",
     },
-    {
-        icon: SunMoon,
-        title: "Light & Dark",
-        blurb: "Two modes, both engineered to look correct.",
-        span: "md:col-span-4",
-    },
 ];
 
 export function About() {
@@ -111,8 +99,7 @@ export function About() {
                             About News Summarizer
                         </h2>
                         <p className="mt-4 text-muted-foreground leading-relaxed">
-                            AI-powered News Summarizer with root cause & multi-source
-                            update analysis.
+                            Understand what happened, why it matters, and what's next — without digging through a dozen different sources.
                         </p>
                         <p className="mt-6 text-sm text-muted-foreground leading-relaxed">
                             This goes beyond traditional summarization by identifying
