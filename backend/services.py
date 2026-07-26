@@ -147,6 +147,7 @@ You will receive a news article (in ANY language) and MUST return a single JSON 
 {
   "title": "string — article title",
   "category": "string — one short category label (e.g., 'Politics', 'Technology', 'Business', 'Health', 'Sports', 'World', 'Science', 'Entertainment')",
+  "key_entities": ["array of 2-6 specific named entities central to this article — company names, institution names, stock tickers, person names, or the specific event/decision. These are used to build a precise search query for related news, so use exact proper nouns, not generic terms (e.g. 'Bank Indonesia', 'BBRI', 'Perry Warjiyo' — NOT 'central bank' or 'interest rates')."],
   "publication_date": "string or null — ISO date if the article states one, else null",
   "reading_time_minutes": "integer — realistic reading time",
   "executive_summary": "string — 100 to 150 words. What happened, why it matters, overall context.",
@@ -363,17 +364,26 @@ _TRUSTED_DOMAINS = [
 ]
 
 
-def fetch_latest_updates(topic: str, exclude_url: Optional[str] = None
+def fetch_latest_updates(topic: str, exclude_url: Optional[str] = None,
+                          entities: Optional[list[str]] = None
                          ) -> list[dict[str, Any]]:
-    """Query Tavily for the latest news on the topic. Returns list, newest first."""
+    """Query Tavily for the latest news on the topic. Returns list, newest first.
+
+    If `entities` is provided, the search query is built from those exact
+    named entities (not the generic topic string), and any result that
+    doesn't mention at least one entity is filtered out.
+    """
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key or api_key.startswith("REPLACE"):
         raise RuntimeError("Live search is not configured. Set TAVILY_API_KEY.")
 
+    entities = [e.strip() for e in (entities or []) if e and e.strip()]
+    query = " ".join(entities) if entities else topic
+
     client = TavilyClient(api_key=api_key)
     try:
         resp = client.search(
-            query=topic,
+            query=query,
             topic="news",
             time_range="month",
             max_results=10,
@@ -384,8 +394,11 @@ def fetch_latest_updates(topic: str, exclude_url: Optional[str] = None
         raise RuntimeError(f"Live search failed: {e}") from e
 
     results = resp.get("results", []) or []
+    logger.info(f"[DEBUG] query='{query}' entities={entities} tavily_raw_count={len(results)}")
     updates: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
+
+    entities_lower = [e.lower() for e in entities]
 
     for r in results:
         url = (r.get("url") or "").strip()
@@ -428,6 +441,7 @@ def fetch_latest_updates(topic: str, exclude_url: Optional[str] = None
         return (0, -parsed.timestamp())  # newest first via negative ts
 
     updates.sort(key=_sort_key)
+    logger.info(f"[DEBUG] after_entity_filter_count={len(updates)}")
     return updates
 
 

@@ -236,14 +236,18 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
         return rate_limit_response(limit, retry_after, "updates")
 
     exclude = None
+    entities: list = []
     if payload.source_url:
         try:
             exclude = normalize_url(payload.source_url)
+            cached_summary = await store.get_cached(url_hash(exclude), "id")
+            if cached_summary:
+                entities = cached_summary.get("key_entities") or []
         except ValueError:
             exclude = None
 
     try:
-        updates = fetch_latest_updates(payload.topic, exclude_url=exclude)
+        updates = fetch_latest_updates(payload.topic, exclude_url=exclude, entities=entities)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception:
