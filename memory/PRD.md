@@ -107,3 +107,16 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 - `RATE_LIMIT_UPDATES` (default 5)
 - `RATE_LIMIT_TRANSLATE` (default 5)
 - `CACHE_TTL_HOURS` (default 24)
+
+## Latest Updates pipeline v2 (Aug 2026 session — per "Latest Update Pipeline Design.txt")
+Implemented in backend/services.py + server.py; frontend contract unchanged.
+1. build_queries(): up to LATEST_UPDATES_QUERY_COUNT=8 variants from stored key_entities/topic/baseline date (lower constant to 3 if Tavily quota exhausted).
+2. search_candidates(): ALL queries concurrent via asyncio.gather + asyncio.to_thread (2-6s for 8; sequential was 20+s). Dedupe URL + title Jaccard 0.8, newest-first, cap 10.
+3. web_fetch_candidates(): top 8 pages fetched concurrently (requests 8s timeout + trafilatura); MANDATORY snippet fallback; content_kind full_text|snippet.
+4. cluster_by_date(): candidates grouped by publish day before synthesis.
+5. synthesize_delta(baseline, clusters): timeline events carry per-event sources; all URLs validated against candidate pool.
+6. compute_confidence(): deterministic in code — +1 if >=4 distinct used domains, +1 if >=50% timeline events corroborated by >=2 domains, +1 if newest used candidate <48h; score>=2 High / 1 Medium / 0 Low. Overrides LLM self-claim.
+7. merge_timeline(): accumulated timeline persisted in NEW `timeline_store` collection (no TTL, separate from 12h delta cache); same_event = same-day + Jaccard>=0.5 (never exact match); timeline only grows. key_entities now stored in summary payload (no extra LLM entity call).
+
+Verified by backend testing agent 9/9: concurrency in logs, timeline 8→11 never shrank, deterministic confidence, 429 on 6th call. Fresh run ~32s (Claude generation ~24s dominates; search+fetch ~8s).
+Env: .env files gitignored — Tavily key from user; emergentintegrations via --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/. Preview: https://3d2fce82-df06-4551-a317-10b3d3af21c4.preview.emergentagent.com. Stale pytest file backend/tests/test_news_summarizer_api.py expects obsolete shape.

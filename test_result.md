@@ -101,3 +101,93 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+user_problem_statement: >
+  Extend the existing Latest Updates implementation (news-summarize branch) per
+  "Latest Update Pipeline Design.txt": (1) build_queries — up to 8 search query
+  variants run CONCURRENTLY via asyncio.gather+to_thread; (2) web_fetch — full-page
+  text for top ~8 candidates with mandatory snippet fallback, 8s timeout;
+  (3) cluster_by_date — group candidates by publish date before LLM synthesis;
+  (4) compute_confidence — deterministic 3-factor score in code (>=4 domains /
+  >=50% events corroborated by >=2 domains / newest used candidate <48h;
+  score>=2 High, 1 Medium, 0 Low); (5) merge_timeline — persistent accumulated
+  timeline in separate timeline_store collection, Jaccard>=0.5 same-day dedup,
+  timeline never shrinks. key_entities now stored in summary payload (no extra
+  LLM entity-extraction call).
+
+backend:
+  - task: "Latest Updates pipeline (build_queries, search_candidates concurrent, web_fetch_candidates, cluster_by_date, synthesize_delta, compute_confidence, merge_timeline, timeline_store persistence)"
+    implemented: true
+    working: true
+    file: "backend/services.py, backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: >
+          Manually verified end-to-end: 8 concurrent Tavily queries in 3-6s
+          (0 failed), web_fetch 3/8 full pages rest snippet-fallback, timeline
+          accumulated 0->4->7->8 across refreshes (never shrank), delta cached
+          response instant, confidence computed deterministically (score 2/3
+          High -> 1/3 Medium across runs), timeline_store persisted. Total
+          pipeline 34s (LLM generation dominates; search+fetch ~8s combined).
+      - working: true
+        agent: "testing"
+        comment: >
+          Comprehensive automated testing completed successfully (9/9 tests passed).
+          Verified: (1) GET /api/health returns 200 OK; (2) POST /api/summarize 
+          returns valid summary with non-empty key_entities array; (3) POST 
+          /api/latest-updates first call completes in 31.8s with valid response 
+          schema (has_update, overview, developments, timeline, current_situation, 
+          market_impact, confidence with level/reason/score/factors, sources_used); 
+          (4) Confidence scoring is deterministic: score 1/3 → Medium (factors: 
+          2 domains <4, 0% corroboration <50%, newest <48h=true); all URLs in 
+          sources_used and timeline[].sources are valid http(s) URLs; (5) Second 
+          POST returns cached response instantly (0.3s); (6) Timeline accumulation 
+          verified: forced fresh run increased timeline from 8→11 events (never 
+          shrinks), timeline_store collection persisted correctly; (7) Backend logs 
+          confirm concurrent execution: "8 queries in 1.9-5.8s" (all <10s), 
+          "web_fetch 3/8 full pages" with snippet fallback; (8) Edge case with 
+          nonsense topic returns 200 with has_update=false (no crash); (9) Rate 
+          limit enforced: 5 calls succeeded, 6th returned 429 with Retry-After 
+          header. All critical requirements met.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.1"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Latest Updates pipeline"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: >
+      New pipeline live at POST /api/latest-updates {topic, source_url}.
+      Response schema unchanged for frontend: {has_update, overview,
+      developments[], timeline[{date,event,sources[]}], current_situation,
+      market_impact, confidence{level,reason,score,factors}, sources_used[]}.
+      Note: rate limit 5 updates/hour/IP (bucket "updates") — testing agent
+      should budget calls or clear db.rate_limit between tests. Delta cached
+      12h per article in summary_cache.latest_update_delta; accumulated
+      timeline in db.timeline_store (no TTL). To force fresh pipeline run:
+      unset latest_update_delta/delta_generated_at in summary_cache.
+      /summarize must be called first for baseline entities (key_entities now
+      in payload). Backend on localhost:8001, external URL in frontend/.env.
+  - agent: "testing"
+    message: >
+      Automated testing completed successfully. All 9 test cases passed:
+      health check, summarize with key_entities, latest-updates first call
+      (31.8s with valid schema), deterministic confidence scoring (score→level
+      mapping verified), cached response (instant), timeline accumulation
+      (8→11 events, never shrinks), concurrent execution confirmed in logs
+      (8 queries in <10s, web_fetch 3/8 full pages), edge case handling
+      (nonsense topic returns 200), and rate limit enforcement (5 calls OK,
+      6th returns 429 with Retry-After). Backend implementation is production-ready.
+      No issues found. Main agent can summarize and finish.

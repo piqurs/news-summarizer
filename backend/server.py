@@ -19,14 +19,19 @@ load_dotenv(ROOT_DIR / ".env")
 
 from services import (  # noqa: E402
     CacheAndRateLimit,
+    build_queries,
+    cluster_by_date,
+    compute_confidence,
     extract_article,
-    fetch_latest_updates,
     looks_like_article_url,
+    merge_timeline,
     normalize_url,
+    search_candidates,
     summarize_article,
     synthesize_delta,
     translate_summary,
     url_hash,
+    web_fetch_candidates,
 )
 
 logging.basicConfig(
@@ -83,6 +88,9 @@ def build_summary_payload(url: str, ai: dict[str, Any],
         },
         "executive_summary": ai.get("executive_summary", ""),
         "key_points": ai.get("key_points", []),
+        # Stored so /latest-updates can build precise search queries WITHOUT an
+        # extra LLM entity-extraction call on every refresh.
+        "key_entities": ai.get("key_entities") or [],
         "main_issue": ai.get("main_issue", {"summary": "", "significance": ""}),
         "root_cause": ai.get("root_cause", {"causes": [], "certainty_note": ""}),
         "recommended_actions": ai.get("recommended_actions", {
@@ -246,9 +254,14 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
             exclude = normalize_url(payload.source_url)
             h = url_hash(exclude)
 
-            # 1) Cek cache delta 12 jam dulu — kalau ada, skip Tavily+Claude sepenuhnya
+            # 1) Cek cache delta 12 jam dulu — kalau ada, skip Tavily+Claude
+            # sepenuhnya. Timeline yang dikembalikan tetap di-overlay dengan
+            # timeline akumulatif persisten agar tidak pernah menyusut.
             cached_delta = await store.get_cached_delta(h)
             if cached_delta:
+                stored_tl = await store.get_timeline(h)
+                if len(stored_tl) > len(cached_delta.get("timeline") or []):
+                    cached_delta["timeline"] = stored_tl
                 return cached_delta
 
             # 2) Ambil baseline dari cache summary utama (title, entities, dll)
@@ -270,18 +283,27 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
         except ValueError:
             exclude = None
 
+    t_start = datetime.now(timezone.utc)
+
+    # Tahap 1 — bangun hingga 8 varian query dari entitas/topik baseline,
+    # lalu jalankan SEMUA query secara konkuren (bukan sekuensial).
+    queries = build_queries(payload.topic, entities,
+                            baseline.get("publication_date"))
     try:
-        raw_candidates = fetch_latest_updates(payload.topic, exclude_url=exclude,
-                                               entities=entities)
+        candidates = await search_candidates(queries, exclude_url=exclude)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
+    stored_timeline = await store.get_timeline(h) if h else []
+
     # Tidak ada kandidat sama sekali — jangan buang Claude call buat sintesis
-    # "tidak ada apa-apa", langsung balikin has_update: false.
-    if not raw_candidates:
+    # "tidak ada apa-apa", langsung balikin has_update: false. Timeline
+    # akumulatif tetap disertakan supaya tidak pernah menyusut.
+    if not candidates:
         result = {
             "has_update": False, "overview": "", "developments": [],
-            "timeline": [], "current_situation": None, "market_impact": None,
+            "timeline": stored_timeline, "current_situation": None,
+            "market_impact": None,
             "confidence": {"level": "Low", "reason":
                 "Tidak ditemukan kandidat berita terkait dalam pencarian."},
             "sources_used": [],
@@ -290,12 +312,35 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
             await store.set_cached_delta(h, result)
         return result
 
+    # Tahap 2 — ambil teks halaman penuh untuk kandidat teratas (konkuren,
+    # timeout pendek, fallback wajib ke snippet bila fetch gagal).
+    candidates = await web_fetch_candidates(candidates)
+
+    # Tahap 3 — kelompokkan kandidat per tanggal terbit sebelum sintesis.
+    clusters = cluster_by_date(candidates)
+
     try:
-        delta = await synthesize_delta(baseline, raw_candidates)
+        delta = await synthesize_delta(baseline, clusters)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
+    # Tahap 4 — confidence dihitung deterministik di kode (3 faktor),
+    # bukan dipercaya dari klaim model.
+    delta["confidence"] = compute_confidence(candidates, delta)
+
+    # Tahap 5 — merge timeline baru ke timeline akumulatif persisten;
+    # timeline hanya bertambah, tidak pernah ditulis ulang dari nol.
+    merged = merge_timeline(stored_timeline, delta.get("timeline") or [])
+    delta["timeline"] = merged
+
+    elapsed = (datetime.now(timezone.utc) - t_start).total_seconds()
+    logger.info("[latest-updates] pipeline done in %.1fs — queries=%d "
+                "candidates=%d timeline=%d (was %d) confidence=%s",
+                elapsed, len(queries), len(candidates), len(merged),
+                len(stored_timeline), delta["confidence"].get("level"))
+
     if h:
+        await store.save_timeline(h, merged)
         await store.set_cached_delta(h, delta)
 
     return delta
