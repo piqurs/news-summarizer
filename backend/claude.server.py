@@ -19,19 +19,14 @@ load_dotenv(ROOT_DIR / ".env")
 
 from services import (  # noqa: E402
     CacheAndRateLimit,
-    build_queries,
-    cluster_by_date,
-    compute_confidence,
     extract_article,
+    fetch_latest_updates,
     looks_like_article_url,
-    merge_timeline,
     normalize_url,
-    search_candidates,
     summarize_article,
     synthesize_delta,
     translate_summary,
     url_hash,
-    web_fetch_candidates,
 )
 
 logging.basicConfig(
@@ -66,6 +61,10 @@ class TranslateRequest(BaseModel):
     target: str = Field(..., pattern="^(en|id)$")
 
 
+class ShareRequest(BaseModel):
+    summary: dict = Field(...)
+
+
 # ---- Helpers ---------------------------------------------------------------
 def client_ip(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for")
@@ -88,14 +87,17 @@ def build_summary_payload(url: str, ai: dict[str, Any],
         },
         "executive_summary": ai.get("executive_summary", ""),
         "key_points": ai.get("key_points", []),
-        # Stored so /latest-updates can build precise search queries WITHOUT an
-        # extra LLM entity-extraction call on every refresh.
-        "key_entities": ai.get("key_entities") or [],
         "main_issue": ai.get("main_issue", {"summary": "", "significance": ""}),
         "root_cause": ai.get("root_cause", {"causes": [], "certainty_note": ""}),
         "recommended_actions": ai.get("recommended_actions", {
             "immediate": [], "short_term": [], "long_term": [],
             "disclaimer": "These are AI-generated recommendations.",
+        }),
+        "impact_analysis": ai.get("impact_analysis", {
+            "items": [],
+            "disclaimer": "AI-generated impact analysis based on the article's "
+                          "content and general domain knowledge — not "
+                          "financial, investment, or professional advice.",
         }),
         "sentiment_and_bias": ai.get("sentiment_and_bias", {
             "tone": "Neutral",
@@ -241,8 +243,8 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
     limit = int(os.environ.get("RATE_LIMIT_UPDATES", "5"))
     ip = client_ip(request)
     allowed, remaining, retry_after = await store.check_rate(ip, "updates", limit)
-    #if not allowed:
-    #    return rate_limit_response(limit, retry_after, "updates")
+    if not allowed:
+        return rate_limit_response(limit, retry_after, "updates")
 
     exclude = None
     entities: list = []
@@ -254,14 +256,9 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
             exclude = normalize_url(payload.source_url)
             h = url_hash(exclude)
 
-            # 1) Cek cache delta 12 jam dulu — kalau ada, skip Tavily+Claude
-            # sepenuhnya. Timeline yang dikembalikan tetap di-overlay dengan
-            # timeline akumulatif persisten agar tidak pernah menyusut.
+            # 1) Cek cache delta 12 jam dulu — kalau ada, skip Tavily+Claude sepenuhnya
             cached_delta = await store.get_cached_delta(h)
             if cached_delta:
-                stored_tl = await store.get_timeline(h)
-                if len(stored_tl) > len(cached_delta.get("timeline") or []):
-                    cached_delta["timeline"] = stored_tl
                 return cached_delta
 
             # 2) Ambil baseline dari cache summary utama (title, entities, dll)
@@ -283,27 +280,23 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
         except ValueError:
             exclude = None
 
-    t_start = datetime.now(timezone.utc)
+    existing_timeline = await store.get_accumulated_timeline(h) if h else []
 
-    # Tahap 1 — bangun hingga 8 varian query dari entitas/topik baseline,
-    # lalu jalankan SEMUA query secara konkuren (bukan sekuensial).
-    queries = build_queries(payload.topic, entities,
-                            baseline.get("publication_date"))
     try:
-        candidates = await search_candidates(queries, exclude_url=exclude)
+        raw_candidates = await fetch_latest_updates(
+            payload.topic, exclude_url=exclude, entities=entities,
+            baseline_date=(baseline or {}).get("publication_date"),
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    stored_timeline = await store.get_timeline(h) if h else []
-
     # Tidak ada kandidat sama sekali — jangan buang Claude call buat sintesis
-    # "tidak ada apa-apa", langsung balikin has_update: false. Timeline
-    # akumulatif tetap disertakan supaya tidak pernah menyusut.
-    if not candidates:
+    # "tidak ada apa-apa". Riwayat timeline yang sudah terakumulasi dari
+    # refresh sebelumnya tetap dipertahankan, bukan ikut dikosongkan.
+    if not raw_candidates:
         result = {
-            "has_update": False, "overview": "", "developments": [],
-            "timeline": stored_timeline, "current_situation": None,
-            "market_impact": None,
+            "has_update": bool(existing_timeline), "overview": "", "developments": [],
+            "timeline": existing_timeline, "current_situation": None, "market_impact": None,
             "confidence": {"level": "Low", "reason":
                 "Tidak ditemukan kandidat berita terkait dalam pencarian."},
             "sources_used": [],
@@ -312,38 +305,34 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
             await store.set_cached_delta(h, result)
         return result
 
-    # Tahap 2 — ambil teks halaman penuh untuk kandidat teratas (konkuren,
-    # timeout pendek, fallback wajib ke snippet bila fetch gagal).
-    candidates = await web_fetch_candidates(candidates)
-
-    # Tahap 3 — kelompokkan kandidat per tanggal terbit sebelum sintesis.
-    clusters = cluster_by_date(candidates)
-
     try:
-        delta = await synthesize_delta(baseline, clusters)
+        delta = await synthesize_delta(baseline, raw_candidates, existing_timeline)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    # Tahap 4 — confidence dihitung deterministik di kode (3 faktor),
-    # bukan dipercaya dari klaim model.
-    delta["confidence"] = compute_confidence(candidates, delta)
-
-    # Tahap 5 — merge timeline baru ke timeline akumulatif persisten;
-    # timeline hanya bertambah, tidak pernah ditulis ulang dari nol.
-    merged = merge_timeline(stored_timeline, delta.get("timeline") or [])
-    delta["timeline"] = merged
-
-    elapsed = (datetime.now(timezone.utc) - t_start).total_seconds()
-    logger.info("[latest-updates] pipeline done in %.1fs — queries=%d "
-                "candidates=%d timeline=%d (was %d) confidence=%s",
-                elapsed, len(queries), len(candidates), len(merged),
-                len(stored_timeline), delta["confidence"].get("level"))
-
     if h:
-        await store.save_timeline(h, merged)
         await store.set_cached_delta(h, delta)
+        await store.set_accumulated_timeline(h, delta.get("timeline") or [])
 
     return delta
+
+
+@api_router.post("/share")
+async def create_share(payload: ShareRequest, request: Request):
+    """Store a snapshot of an already-generated summary and return a short
+    slug for it. This is deliberately decoupled from the 12h summary cache —
+    a link someone shares should keep working even after that expires."""
+    slug = await store.create_share(payload.summary)
+    return {"slug": slug}
+
+
+@api_router.get("/shared/{slug}")
+async def get_shared(slug: str):
+    doc = await store.get_share(slug)
+    if not doc:
+        raise HTTPException(status_code=404,
+                             detail="This shared summary was not found.")
+    return {"summary": doc["summary"], "created_at": doc.get("created_at")}
 
 
 @api_router.post("/translate")
