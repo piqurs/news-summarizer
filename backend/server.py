@@ -241,8 +241,8 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
     limit = int(os.environ.get("RATE_LIMIT_UPDATES", "5"))
     ip = client_ip(request)
     allowed, remaining, retry_after = await store.check_rate(ip, "updates", limit)
-    #if not allowed:
-    #    return rate_limit_response(limit, retry_after, "updates")
+    if not allowed:
+       return rate_limit_response(limit, retry_after, "updates")
 
     exclude = None
     entities: list = []
@@ -290,7 +290,10 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
     queries = build_queries(payload.topic, entities,
                             baseline.get("publication_date"))
     try:
-        candidates = await search_candidates(queries, exclude_url=exclude)
+        candidates = await search_candidates(
+            queries, exclude_url=exclude,
+            baseline_date=baseline.get("publication_date"),
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -431,3 +434,4 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
+

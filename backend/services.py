@@ -574,9 +574,27 @@ def _title_similar(a: str, b: str, threshold: float = 0.8) -> bool:
         return False
     return len(wa & wb) / len(wa | wb) >= threshold
 
+def _compute_search_days(baseline_date: Optional[str]) -> int:
+    """How far back Tavily should search. Floor of 4 days for a fresh
+    baseline. If the baseline article is older than that, extend the window
+    to cover the full gap since it was published — otherwise a genuine
+    update from, say, 6 months ago against a 6-month-old baseline falls
+    outside a fixed 30-day window and gets silently missed (this was the
+    root cause of "no updates found" on older articles). Capped at 400 days
+    so a very old baseline doesn't pull in irrelevantly old "updates"."""
+    if not baseline_date:
+        return 30
+    parsed = _parse_date_str(baseline_date)
+    if not parsed:
+        return 30
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    gap_days = (datetime.now(timezone.utc) - parsed).days
+    return max(4, min(gap_days + 1, 400))
 
 async def search_candidates(queries: list[str],
-                            exclude_url: Optional[str] = None
+                            exclude_url: Optional[str] = None,
+                            baseline_date: Optional[str] = None,
                            ) -> list[dict[str, Any]]:
     """Run ALL queries against Tavily CONCURRENTLY (sequential execution was
     measured to add 20+ seconds), pool the results, dedupe by URL and by
@@ -588,13 +606,14 @@ async def search_candidates(queries: list[str],
         return []
 
     tavily_client = TavilyClient(api_key=api_key)
+    search_days = _compute_search_days(baseline_date)
 
     started = datetime.now(timezone.utc)
     results = await asyncio.gather(
         *[asyncio.to_thread(lambda q=q: tavily_client.search(
             query=q,
             topic="news",
-            time_range="month",
+            day=search_days,
             max_results=_SEARCH_RESULTS_PER_QUERY,
             include_domains=_TRUSTED_DOMAINS,
         )) for q in queries],
