@@ -1,0 +1,45 @@
+{
+  "summary": "Backend-only regression suite for /api/latest-updates fixes. 8/9 tests pass. Health, /summarize, 12-month window enforcement, ticker-collision, no-date drop rules, merge_timeline legacy cleanup, empty-cache TTL and 3 of 4 live URL flows all verified. ONE reproducible regression remains: the ANTM (gold price ticker) URL returns has_update=false + empty developments from synthesize_delta on a fresh run, even though the accumulated timeline overlay contains 3 valid dated post-baseline gold-price events. The response is internally inconsistent (has_update=false, confidence 'Low' saying 0/0 timeline, but the returned timeline field contains 3 valid entries from stored history via merge_timeline). Other three URLs (kompas B50, IHSG, Rupiah) pass all invariants.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/latest-updates (source_url=bloombergtechnoz .../96429/harga-emas-antam...)",
+        "issue": "Regression check B FAILS. Fresh synthesize_delta call for the ANTM/gold-price URL still returns has_update=false, developments=[], timeline=[] this run — despite the ROLLING-MARKET prompt rule and ticker disambiguation. Deterministic confidence then reports 'Skor 0/3 — 0 domain sumber independen; 0/0 peristiwa timeline terkorroborasi; tanggal sumber terbaru tidak diketahui'. Because merge_timeline overlays the persisted stored_timeline (3 entries from an earlier successful run) onto the empty new timeline, the response ends up self-contradictory: has_update:false + developments:[] + confidence:'Low reason 0/0' BUT timeline:[3 valid dated events with proper sources]. This will confuse the UI: user sees a real timeline but the badge/overview says 'no updates'.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_latest_updates.py",
+    "/app/test_reports/pytest/iteration4_results.xml"
+  ],
+  "action_items": [
+    "Fix internal inconsistency between synthesize_delta output and merge_timeline overlay. Recommended: in /api/latest-updates AFTER the merge_timeline step, if `merged` (post-filter, all dated) is non-empty AND all entries are post-baseline, set delta['has_update']=True and recompute delta['confidence'] using the merged timeline instead of the fresh-only timeline. Right now compute_confidence is called BEFORE merge, which is why 0/0 shows even when the response ends up with 3 events.",
+    "Additionally strengthen synthesize_delta so the ANTM/gold case surfaces a fresh timeline reliably: current queries for ANTM (after disambiguation) still evidently return candidates the LLM classifies as 'restatement'. Consider adding an explicit fallback: if baseline main_issue mentions 'harga emas'/'gold price'/currency/index AND candidates contain later dated price data points, deterministically build at least one timeline entry from the newest on-topic candidate instead of trusting the LLM's judgement.",
+    "Consider deriving has_update from `bool(timeline) or bool(developments)` rather than developments alone in synthesize_delta defensive defaults, so a timeline-only response is not marked has_update:false."
+  ],
+  "critical_code_review_comments": [
+    "server.py: compute_confidence runs BEFORE merge_timeline (lines 334 vs 338). Confidence therefore reflects only the NEW delta from this run, while the response body carries the MERGED timeline. This is the root cause of the ANTM inconsistency and is orthogonal to the ANTM LLM issue.",
+    "services.py synthesize_delta defensive default: `data.setdefault('has_update', bool(data.get('developments')))` — should be `bool(data.get('developments')) or bool(data.get('timeline'))`. A model that emits timeline but forgets to flip has_update currently produces an incoherent response.",
+    "services.py get_cached_delta reads LATEST_UPDATES_EMPTY_TTL_MINUTES on every call — good, hot-reload of env value works in tests. Confirmed.",
+    "services.py CacheAndRateLimit.set_cached_delta uses update_one WITHOUT upsert=True. If /api/latest-updates is called before /api/summarize for the same URL, the delta write silently no-ops. Not exploitable via the public UI flow, but worth an upsert=True for robustness."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (fixed REACT_APP_BACKEND_URL loading from frontend/.env + used real DB_NAME instead of hard-coded 'test_database')",
+    "/app/backend/tests/test_latest_updates.py (new comprehensive regression suite)"
+  ],
+  "success_rate": {"backend": "89%", "frontend": "n/a"},
+  "test_credentials": "none required — public endpoints; EMERGENT_LLM_KEY + TAVILY_API_KEY loaded from /app/backend/.env as instructed",
+  "seed_data_creation": "Test doc inserted+removed in summary_cache under hash prefix TEST_EMPTY_TTL_HASH_ for the empty-TTL test; cleaned up in same test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Re-run /app/backend/tests/test_latest_updates.py after the fix. The ANTM case is LLM-dependent so occasionally may pass without a code change — running 2-3 times is advised. The stored_timeline in DB already contains 3 valid entries for the ANTM URL from earlier successful runs; to force a true fresh test, delete `db.timeline_store` document for that URL's hash before the run.",
+  "rca of the issue": {
+    "bug": "For ANTM/gold-price URL, /api/latest-updates returns has_update:false while the response's `timeline` field contains 3 valid post-baseline dated events.",
+    "reproduction": "1) POST /api/summarize with url=https://www.bloombergtechnoz.com/detail-news/96429/harga-emas-antam-naik-lagi-cetak-rekor-tertinggi (or use cached).  2) POST /api/latest-updates {topic: <baseline title>, source_url: <same>, force_refresh: true}. Observe response.has_update=false but response.timeline has 3 entries.",
+    "root_cause": "Two compounding causes: (a) synthesize_delta returned has_update:false, developments:[], timeline:[] this run — the LLM did not honour the ROLLING-MARKET prompt rule for this particular set of candidates. (b) server.py computes confidence BEFORE merging with stored_timeline, and merge_timeline then overlays 3 legit historical timeline events onto the empty new delta. The final response is therefore contradictory: flags say 'no update', body carries an update.",
+    "mitigation": "In server.latest_updates, after `merged = merge_timeline(...)`, if merged has any entry strictly after baseline_date, force delta['has_update']=True and recompute delta['confidence'] using the merged timeline (currently only the fresh-run timeline drives confidence). Also fix synthesize_delta default `has_update` to consider timeline as well as developments."
+  }
+}

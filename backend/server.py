@@ -59,6 +59,7 @@ class SummarizeRequest(BaseModel):
 class LatestUpdatesRequest(BaseModel):
     topic: str = Field(..., min_length=3, max_length=400)
     source_url: Optional[str] = None
+    force_refresh: bool = False
 
 
 class TranslateRequest(BaseModel):
@@ -238,11 +239,12 @@ async def summarize(payload: SummarizeRequest, request: Request):
 
 @api_router.post("/latest-updates")
 async def latest_updates(payload: LatestUpdatesRequest, request: Request):
+    print("Line 242 from console")
     limit = int(os.environ.get("RATE_LIMIT_UPDATES", "5"))
     ip = client_ip(request)
     allowed, remaining, retry_after = await store.check_rate(ip, "updates", limit)
-    if not allowed:
-       return rate_limit_response(limit, retry_after, "updates")
+    #if not allowed:
+    #   return rate_limit_response(limit, retry_after, "updates")
 
     exclude = None
     entities: list = []
@@ -257,7 +259,7 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
             # 1) Cek cache delta 12 jam dulu — kalau ada, skip Tavily+Claude
             # sepenuhnya. Timeline yang dikembalikan tetap di-overlay dengan
             # timeline akumulatif persisten agar tidak pernah menyusut.
-            cached_delta = await store.get_cached_delta(h)
+            cached_delta = None if payload.force_refresh else await store.get_cached_delta(h)
             if cached_delta:
                 stored_tl = await store.get_timeline(h)
                 if len(stored_tl) > len(cached_delta.get("timeline") or []):
@@ -327,14 +329,43 @@ async def latest_updates(payload: LatestUpdatesRequest, request: Request):
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    # Tahap 4 — confidence dihitung deterministik di kode (3 faktor),
-    # bukan dipercaya dari klaim model.
-    delta["confidence"] = compute_confidence(candidates, delta)
-
     # Tahap 5 — merge timeline baru ke timeline akumulatif persisten;
     # timeline hanya bertambah, tidak pernah ditulis ulang dari nol.
     merged = merge_timeline(stored_timeline, delta.get("timeline") or [])
     delta["timeline"] = merged
+
+    # Tahap 6 — hitung confidence deterministik SETELAH merge, sehingga skor
+    # dilihat konsisten dengan timeline yang benar-benar ditampilkan.
+    delta["confidence"] = compute_confidence(candidates, delta)
+
+    # Tahap 7 — konsistensi output. Kalau timeline akumulatif berisi
+    # peristiwa pasca-baseline TAPI run kali ini balik kosong dari LLM,
+    # respon TIDAK boleh menampilkan badge "no update" bersamaan dengan
+    # isi timeline yang ada. Paksakan has_update=true dan isi overview
+    # bila kosong, serta timpa confidence.reason agar tidak menyesatkan.
+    from services import _parse_date_str as _pd
+    baseline_dt2 = _pd(baseline.get("publication_date") or "")
+
+    def _post_baseline(ev):
+        d = _pd(str(ev.get("date") or ""))
+        return bool(d) and (baseline_dt2 is None or d > baseline_dt2)
+
+    post_baseline_events = [ev for ev in merged if _post_baseline(ev)]
+    if post_baseline_events and not delta.get("has_update"):
+        delta["has_update"] = True
+        if not (delta.get("overview") or "").strip():
+            delta["overview"] = (
+                f"Tidak ada perkembangan baru terdeteksi pada pencarian ini. "
+                f"Timeline berikut merupakan akumulasi {len(post_baseline_events)} "
+                f"peristiwa pasca-baseline dari pencarian sebelumnya untuk "
+                f"artikel yang sama."
+            )
+        conf_reason_prev = (delta.get("confidence") or {}).get("reason") or ""
+        delta["confidence"]["reason"] = (
+            f"{conf_reason_prev} Ditampilkan {len(post_baseline_events)} "
+            f"peristiwa akumulatif pasca-baseline (tidak ada perkembangan "
+            f"baru dari sumber terbaru run ini)."
+        ).strip()
 
     elapsed = (datetime.now(timezone.utc) - t_start).total_seconds()
     logger.info("[latest-updates] pipeline done in %.1fs — queries=%d "

@@ -108,6 +108,18 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 - `RATE_LIMIT_TRANSLATE` (default 5)
 - `CACHE_TTL_HOURS` (default 24)
 
+## Latest Updates pipeline v3 (Feb 2026 — user-driven fixes)
+Two hard product rules enforced end-to-end plus a consistency fix:
+1. **12-month window** — `_search_window_days()` returns int(`LATEST_UPDATES_WINDOW_DAYS`) with a default of 365. Applied both as `day=` param to Tavily AND as a `parsed_pub >= now-365d` filter in `search_candidates()`. Never depends on baseline article age.
+2. **No "Unknown date"** — any candidate with missing/unparseable date is dropped in `search_candidates()`; any LLM timeline event without a parseable date is dropped in `synthesize_delta`; `merge_timeline()` also strips legacy undated rows (including from stored `timeline_store`); `get_timeline()` sanitises on read.
+3. **Ticker disambiguation** — `_looks_like_ticker`/`_disambiguate` pair short all-caps entities (e.g. ANTM, BBRI) with a longer companion entity or topic word before sending as a query. Prevents ANTM colliding with "America's Next Top Model" in Tavily results.
+4. **Rolling-market prompt rule** — synthesize_delta system prompt now explicitly instructs the model to treat later dated data points on continuous stories (indices, prices, rates, policy timelines) as GENUINE updates, and to silently ignore off-topic candidates from broad entity searches.
+5. **Empty-cache TTL** — `has_update: false` results get a separate shorter TTL from `LATEST_UPDATES_EMPTY_TTL_MINUTES` (default 30) so users can retry without being stuck.
+6. **Consistency fix** — `latest_updates` now merges timeline BEFORE calling `compute_confidence`, and if the merged accumulated timeline contains any post-baseline event but the fresh LLM run was empty, forces `has_update=true` + populates a Bahasa Indonesia overview + appends `peristiwa akumulatif pasca-baseline` context to `confidence.reason`. Prevents the previous self-contradictory `has_update:false` + non-empty timeline response.
+
+Backend testing agent iteration_5.json: 11/11 tests pass, all four user-reported URLs green (kompas B50, IHSG, Rupiah, Emas Antam). Frontend NOT modified per user directive.
+Env (backend/.env): `LATEST_UPDATES_WINDOW_DAYS=365`, `LATEST_UPDATES_EMPTY_TTL_MINUTES=30` (new — both configurable at runtime).
+
 ## Latest Updates pipeline v2 (Aug 2026 session — per "Latest Update Pipeline Design.txt")
 Implemented in backend/services.py + server.py; frontend contract unchanged.
 1. build_queries(): up to LATEST_UPDATES_QUERY_COUNT=8 variants from stored key_entities/topic/baseline date (lower constant to 3 if Tavily quota exhausted).

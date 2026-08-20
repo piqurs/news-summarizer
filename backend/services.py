@@ -370,7 +370,9 @@ You will receive:
 1. BASELINE — the original article's title, key entities, key points, main issue, and publication date. Treat this as everything the reader already knows.
 2. CANDIDATE ARTICLES, GROUPED BY PUBLISH DATE — an ordered list of date clusters (oldest to newest; unknown dates last). Each candidate has: source domain, title, url, published date, content_kind, and content. content_kind is either "full_text" (the full extracted article body — you may draw detailed facts, numbers, and quotes from it) or "snippet" (a short search excerpt — use ONLY what the snippet explicitly states).
 
-Your job: identify ONLY what these candidates reveal that is NEW relative to the baseline — new facts, new numbers, new statements, new official/company responses, new market reactions, new regulatory action, new consequences. Then compose a rich, precise update in the style of a well-briefed analyst: concrete dates, figures, percentages, names, and institutions — never vague phrases like "ada perkembangan baru". Ignore any candidate that merely restates baseline facts in different words.
+Your job: identify ONLY what these candidates reveal that is NEW relative to the baseline — new facts, new numbers, new statements, new official/company responses, new market reactions, new regulatory action, new consequences, and DATED subsequent data points on the same ongoing story (e.g. a later price/rate/index level, a later government statement, a later official milestone in a rolling policy). Then compose a rich, precise update in the style of a well-briefed analyst: concrete dates, figures, percentages, names, and institutions — never vague phrases like "ada perkembangan baru". Ignore any candidate that merely re-states baseline facts in identical wording with no new date and no new figure.
+
+"Ongoing story" clarification: for continuous phenomena like currency rates, commodity prices, stock indices, or a policy timeline the baseline flagged as "being prepared", a later dated data point (a new price level, a new government action on that policy, a new central-bank move) IS a genuine update — do not discard it as "restatement" just because the topic overlaps with the baseline.
 
 Return a single JSON object matching this schema — no prose, no markdown fences:
 
@@ -378,7 +380,7 @@ Return a single JSON object matching this schema — no prose, no markdown fence
   "has_update": true or false,
   "overview": "string, 2-4 sentences in Bahasa Indonesia summarizing how the story has moved since the baseline — may open with one short sentence of context connecting baseline to the newest state — empty string if has_update is false",
   "developments": ["array of AT MOST 6 strings, each ONE genuinely new development stated with its concrete specifics (date, number, actor) — empty array if none"],
-  "timeline": [{"date": "YYYY-MM-DD or null if unknown", "event": "string — ONE concise sentence (max ~25 words) describing the event with specifics", "sources": ["exact candidate URLs that report THIS event"]}],
+  "timeline": [{"date": "YYYY-MM-DD (MANDATORY — an event without a specific parseable date must NOT be included at all)", "event": "string — ONE concise sentence (max ~25 words) describing the event with specifics", "sources": ["exact candidate URLs that report THIS event"]}],
   "current_situation": "string or null — the latest concrete state of affairs, only if the candidates actually state it; otherwise null, do not infer",
   "market_impact": "string or null — only fill if a candidate explicitly discusses market/investor/stakeholder impact; otherwise null",
   "confidence": {"level": "High | Medium | Low", "reason": "string"},
@@ -388,10 +390,12 @@ Return a single JSON object matching this schema — no prose, no markdown fence
 Rules:
 - Language: every human-readable string must be in Bahasa Indonesia. Keep confidence.level as exactly "High", "Medium", or "Low".
 - DATE ANCHORING (critical): a candidate only counts as an update if its published date is genuinely after the baseline's publication date. If a candidate's date is missing or unparseable, you may still use it but note the reduced certainty in confidence.reason. If a candidate's date is on or before the baseline date, discard it entirely.
-- TIMELINE DISCIPLINE: build the timeline strictly in chronological order using the date clusters you were given. AT MOST 6 entries, one per distinct real-world event. Every timeline entry MUST list in "sources" the exact candidate URL(s) that report that event — never an empty array, never a URL not in the candidate list.
+- TIMELINE DISCIPLINE: build the timeline strictly in ascending chronological order (oldest first) using the date clusters you were given. AT MOST 6 entries, one per distinct real-world event. Every timeline entry MUST have a specific YYYY-MM-DD date — an event that cannot be tied to a specific date MUST NOT appear in the timeline at all (do NOT emit `date: null`, do NOT emit vague dates like "recent" or a bare month). Every timeline entry MUST list in "sources" the exact candidate URL(s) that report that event — never an empty array, never a URL not in the candidate list. Merge multiple sources reporting the same dated event into ONE entry.
 - BE CONCISE: precision over length. Do not pad. Total output should stay compact — dense facts, no filler phrases.
 - Never repeat or re-explain baseline facts.
 - Never speculate or infer beyond what a candidate's content explicitly states. For "snippet" candidates, if the snippet is too thin to state a concrete development, leave it out rather than guess.
+- ROLLING-MARKET RULE (critical): if the baseline article is about a continuous market or commodity phenomenon (stock index, exchange rate, gold/oil price, commodity ticker) AND at least ONE candidate contains a dated later data point on the same instrument, you MUST return has_update: true and include those data points as timeline entries with their specific dates. Do NOT rule these out as "restatement" — a later dated price/level/movement IS a genuine update.
+- IGNORE OFF-TOPIC CANDIDATES: some candidates from broad entity searches may be off-topic (e.g. a stock ticker matching an unrelated proper noun in another language). Silently ignore those in your synthesis; do not let their presence make you conclude "no update" when other candidates ARE on-topic.
 - SOURCE PRIORITY: prefer local Indonesian outlets with direct coverage (Kompas, Bisnis.com, Detik, Tempo, Antara) as primary evidence for Indonesia-specific events. Treat international wire coverage (Reuters, Bloomberg, CNBC, AP, BBC) as corroboration or global-impact context, not an automatic override of more specific local reporting.
 - Merge duplicate reports of the same event (different outlets, different wording) into ONE timeline entry and ONE development — but list every corroborating URL in that entry's "sources" and in "sources_used".
 - If no candidate contains a genuine post-baseline development, set has_update to false, overview to an empty string, developments to an empty array, and explain in confidence.reason that no significant change was found.
@@ -437,7 +441,9 @@ async def synthesize_delta(baseline: dict[str, Any],
         raise RuntimeError(f"Delta synthesis could not be parsed: {e}") from e
 
     # Defensive defaults — never trust the model to include every key.
-    data.setdefault("has_update", bool(data.get("developments")))
+    data.setdefault("has_update",
+                    bool(data.get("developments"))
+                    or bool(data.get("timeline")))
     data.setdefault("overview", "")
     data.setdefault("developments", [])
     data.setdefault("timeline", [])
@@ -465,15 +471,35 @@ async def synthesize_delta(baseline: dict[str, Any],
     for ev in data["timeline"]:
         if not isinstance(ev, dict) or not (ev.get("event") or "").strip():
             continue
+        # HARD RULE: any event without a parseable date is dropped entirely.
+        # Never surface "Unknown date" in the UI — the user's rule is
+        # explicit that undated results must be excluded from the response.
+        ev_date = ev.get("date")
+        if not _parse_date_str(str(ev_date) if ev_date else ""):
+            continue
         srcs = [
             u for u in (ev.get("sources") or [])
             if isinstance(u, str) and u.strip() in valid_urls
         ]
         timeline.append({
-            "date": ev.get("date"),
+            "date": ev_date,
             "event": ev["event"].strip(),
             "sources": srcs,
         })
+    # Deterministic date-anchoring enforcement — don't rely solely on the
+    # model following the DATE ANCHORING prompt rule. Testing showed it
+    # doesn't always: the baseline's OWN publish date has shown up as if it
+    # were a new "development". If an event's date is parseable and falls
+    # on or before the baseline's publication date, drop it — no exception.
+    baseline_dt = _parse_date_str(baseline.get("publication_date") or "")
+    if baseline_dt:
+        filtered_timeline = []
+        for ev in timeline:
+            ev_dt = _parse_date_str(ev.get("date") or "")
+            if ev_dt and ev_dt <= baseline_dt:
+                continue  # on/before baseline — not a genuine new development
+            filtered_timeline.append(ev)
+        timeline = filtered_timeline
     data["timeline"] = timeline
 
     return data
@@ -487,7 +513,7 @@ async def synthesize_delta(baseline: dict[str, Any],
 LATEST_UPDATES_QUERY_COUNT = 8
 LATEST_UPDATES_FETCH_COUNT = 8   # candidates whose full page we fetch
 _SEARCH_RESULTS_PER_QUERY = 6
-_MAX_CANDIDATES_FOR_LLM = 10
+_MAX_CANDIDATES_FOR_LLM = 16
 _FETCH_TIMEOUT_SECONDS = 8       # short — several fetches run concurrently
 _FULLTEXT_CHAR_CAP = 2000
 
@@ -529,12 +555,44 @@ def _word_set(text: str) -> set[str]:
     return {w for w in re.findall(r"[\w-]+", (text or "").lower()) if len(w) > 3}
 
 
+_TICKER_RX = re.compile(r"^[A-Z]{2,5}$")
+
+
+def _looks_like_ticker(s: str) -> bool:
+    """True for short all-caps tokens that plausibly collide with an unrelated
+    proper noun in a general news index (e.g. 'ANTM' = both PT Aneka Tambang's
+    ticker AND 'America's Next Top Model'). We never send these standalone."""
+    return bool(_TICKER_RX.match(s.strip()))
+
+
+def _disambiguate(entity: str, other_entities: list[str], topic: str) -> str:
+    """Return the entity string paired with a disambiguator (another entity
+    or a topic word) when it looks like a bare ticker, else return as-is."""
+    entity = entity.strip()
+    if not _looks_like_ticker(entity):
+        return entity
+    for other in other_entities:
+        other = other.strip()
+        if other and other.lower() != entity.lower() and not _looks_like_ticker(other):
+            return f"{entity} {other}"
+    topic_word = (topic or "").strip().split()
+    for w in topic_word:
+        if len(w) >= 4 and w.lower() != entity.lower():
+            return f"{entity} {w}"
+    return entity
+
+
 def build_queries(topic: str, entities: Optional[list[str]] = None,
                   baseline_date: Optional[str] = None) -> list[str]:
     """Build up to LATEST_UPDATES_QUERY_COUNT search query variants from the
     baseline article's topic/entities — combined-entities, '{entity} terbaru',
     '{entity} since {baseline date}', etc. No LLM call: entities come from the
-    original /summarize result."""
+    original /summarize result.
+
+    Ticker-style entities (short all-caps like ANTM, BBRI) collide with
+    unrelated proper nouns and pollute the candidate pool. They are ALWAYS
+    disambiguated by pairing them with another entity or a topic word — we
+    never emit a bare-ticker query."""
     entities = [e.strip() for e in (entities or []) if e and e.strip()]
     topic = (topic or "").strip()
 
@@ -543,16 +601,17 @@ def build_queries(topic: str, entities: Optional[list[str]] = None,
     if combined:
         variants.append(combined)
     if entities:
-        e0 = entities[0]
+        e0 = _disambiguate(entities[0], entities[1:], topic)
         if len(entities) >= 2:
-            variants.append(f"{e0} {entities[1]}")
+            variants.append(f"{entities[0]} {entities[1]}")
         variants.append(f"{e0} terbaru")
         variants.append(f"{e0} latest news")
         variants.append(f"{e0} hari ini")
         if baseline_date:
             variants.append(f"{e0} since {str(baseline_date)[:10]}")
         if len(entities) >= 2:
-            variants.append(f"{entities[1]} terbaru")
+            e1 = _disambiguate(entities[1], [entities[0]] + entities[2:], topic)
+            variants.append(f"{e1} terbaru")
     if topic:
         variants.append(topic)
         variants.append(f"{topic} perkembangan terbaru")
@@ -574,23 +633,14 @@ def _title_similar(a: str, b: str, threshold: float = 0.8) -> bool:
         return False
     return len(wa & wb) / len(wa | wb) >= threshold
 
-def _compute_search_days(baseline_date: Optional[str]) -> int:
-    """How far back Tavily should search. Floor of 4 days for a fresh
-    baseline. If the baseline article is older than that, extend the window
-    to cover the full gap since it was published — otherwise a genuine
-    update from, say, 6 months ago against a 6-month-old baseline falls
-    outside a fixed 30-day window and gets silently missed (this was the
-    root cause of "no updates found" on older articles). Capped at 400 days
-    so a very old baseline doesn't pull in irrelevantly old "updates"."""
-    if not baseline_date:
-        return 30
-    parsed = _parse_date_str(baseline_date)
-    if not parsed:
-        return 30
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    gap_days = (datetime.now(timezone.utc) - parsed).days
-    return max(4, min(gap_days + 1, 400))
+def _search_window_days() -> int:
+    """Hard 12-month window from TODAY — never based on the baseline article
+    date. Any candidate older than this must be dropped before it can reach
+    the LLM. Configurable via LATEST_UPDATES_WINDOW_DAYS (default 365)."""
+    try:
+        return max(1, int(os.environ.get("LATEST_UPDATES_WINDOW_DAYS", "365")))
+    except ValueError:
+        return 365
 
 async def search_candidates(queries: list[str],
                             exclude_url: Optional[str] = None,
@@ -598,7 +648,9 @@ async def search_candidates(queries: list[str],
                            ) -> list[dict[str, Any]]:
     """Run ALL queries against Tavily CONCURRENTLY (sequential execution was
     measured to add 20+ seconds), pool the results, dedupe by URL and by
-    near-identical titles, and return candidates sorted newest first."""
+    near-identical titles, DROP any candidate whose published date is missing,
+    unparseable, or falls outside the fixed 12-month window from today, and
+    return the survivors sorted newest first."""
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key or api_key.startswith("REPLACE"):
         raise RuntimeError("Live search is not configured. Set TAVILY_API_KEY.")
@@ -606,9 +658,11 @@ async def search_candidates(queries: list[str],
         return []
 
     tavily_client = TavilyClient(api_key=api_key)
-    search_days = _compute_search_days(baseline_date)
+    search_days = _search_window_days()
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=search_days)
 
-    started = datetime.now(timezone.utc)
+    started = now
     results = await asyncio.gather(
         *[asyncio.to_thread(lambda q=q: tavily_client.search(
             query=q,
@@ -636,6 +690,8 @@ async def search_candidates(queries: list[str],
 
     candidates: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
+    dropped_no_date = 0
+    dropped_out_of_window = 0
     for r in pooled:
         url = (r.get("url") or "").strip()
         if not url or url in seen_urls:
@@ -645,12 +701,24 @@ async def search_candidates(queries: list[str],
                 continue
         except ValueError:
             pass
+        pub = r.get("published_date") or r.get("publication_date")
+        parsed_pub = _parse_date_str(pub or "")
+        # HARD RULE: any candidate with a missing/unparseable date is dropped
+        # entirely — never shows up as "Unknown date" downstream.
+        if parsed_pub is None:
+            dropped_no_date += 1
+            continue
+        if parsed_pub.tzinfo is None:
+            parsed_pub = parsed_pub.replace(tzinfo=timezone.utc)
+        # HARD RULE: enforce 12-month window from today.
+        if parsed_pub < window_start:
+            dropped_out_of_window += 1
+            continue
         title = r.get("title") or ""
         # Near-identical title from another query result -> same story, skip.
         if any(_title_similar(title, c["title"]) for c in candidates):
             continue
         seen_urls.add(url)
-        pub = r.get("published_date") or r.get("publication_date")
         candidates.append({
             "date": pub,
             "source": _domain_of(url),
@@ -658,16 +726,41 @@ async def search_candidates(queries: list[str],
             "summary": (r.get("content") or "")[:400],
             "url": url,
         })
+    if dropped_no_date or dropped_out_of_window:
+        logger.info("[latest-updates] dropped %d no-date and %d out-of-window "
+                    "(>%dd) candidates before sort",
+                    dropped_no_date, dropped_out_of_window, search_days)
 
-    # Sort newest first — parseable dates first, undated last.
-    def _sort_key(u: dict[str, Any]) -> tuple[int, float]:
-        parsed = _parse_date_str(u.get("date") or "")
-        if parsed is None:
-            return (1, 0.0)
-        return (0, -parsed.timestamp())
+    # Sort newest first — all survivors now have parseable dates.
+    def _week_bucket(date_str: str) -> str:
+        parsed = _parse_date_str(date_str)
+        # survivors are guaranteed parseable, but keep the guard for safety
+        if not parsed:
+            return "unknown"
+        iso_year, iso_week, _ = parsed.isocalendar()
+        return f"{iso_year}-W{iso_week:02d}"
 
-    candidates.sort(key=_sort_key)
-    return candidates[:_MAX_CANDIDATES_FOR_LLM]
+    def _bucket_sort_key(c: dict[str, Any]) -> float:
+        parsed = _parse_date_str(c.get("date") or "")
+        return -parsed.timestamp() if parsed else 0.0
+
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for c in candidates:
+        buckets.setdefault(_week_bucket(c.get("date") or ""), []).append(c)
+    for key in buckets:
+        buckets[key].sort(key=_bucket_sort_key)
+
+    dated_keys = sorted((k for k in buckets if k != "unknown"), reverse=True)
+    ordered_keys = dated_keys + (["unknown"] if "unknown" in buckets else [])
+
+    selected: list[dict[str, Any]] = []
+    while len(selected) < _MAX_CANDIDATES_FOR_LLM and any(buckets[k] for k in ordered_keys):
+        for key in ordered_keys:
+            if buckets[key]:
+                selected.append(buckets[key].pop(0))
+                if len(selected) >= _MAX_CANDIDATES_FOR_LLM:
+                    break
+    return selected
 
 
 def _fetch_page_text(url: str) -> Optional[str]:
@@ -731,11 +824,15 @@ def cluster_by_date(candidates: list[dict[str, Any]]
     """Group candidates by publish day BEFORE synthesis so the LLM receives an
     ordered, date-grouped structure instead of a flat unordered list — with
     multi-query pooling the pool is larger, and ungrouped input makes a messy,
-    out-of-order timeline far more likely."""
+    out-of-order timeline far more likely. All candidates reaching this
+    function are guaranteed to have a parseable date (see search_candidates)."""
     groups: dict[str, list[dict[str, Any]]] = {}
     for c in candidates:
         parsed = _parse_date_str(c.get("date") or "")
-        key = parsed.date().isoformat() if parsed else "unknown"
+        if not parsed:
+            # Defensive: search_candidates already filters these out.
+            continue
+        key = parsed.date().isoformat()
         groups.setdefault(key, []).append({
             "source": c.get("source"),
             "title": c.get("title"),
@@ -745,9 +842,7 @@ def cluster_by_date(candidates: list[dict[str, Any]]
             "content": c.get("content", c.get("summary") or ""),
         })
 
-    dated = sorted(k for k in groups if k != "unknown")
-    ordered = dated + (["unknown"] if "unknown" in groups else [])
-    return [{"date": k, "articles": groups[k]} for k in ordered]
+    return [{"date": k, "articles": groups[k]} for k in sorted(groups)]
 
 
 def _overlap_domains(event: dict[str, Any],
@@ -857,6 +952,9 @@ def same_event(a: dict[str, Any], b: dict[str, Any]) -> bool:
 
 
 def _timeline_sort_key(ev: dict[str, Any]) -> tuple[int, str]:
+    """Strict chronological (ascending). Entries reaching this point are
+    guaranteed to have a parseable date — see merge_timeline() and
+    synthesize_delta()."""
     d = str(ev.get("date") or "")[:10]
     if re.match(r"^\d{4}-\d{2}-\d{2}$", d):
         return (0, d)
@@ -868,10 +966,22 @@ def merge_timeline(existing: list[dict[str, Any]],
     """Merge the newly synthesized timeline INTO the accumulated one — the
     timeline only ever grows, it is never regenerated from scratch. Duplicate
     detection uses same_event (word-overlap), unioning sources and keeping the
-    more detailed wording."""
-    merged = [dict(e) for e in (existing or []) if isinstance(e, dict)]
+    more detailed wording. HARD RULE: any entry with a missing/unparseable
+    date is dropped from the output entirely (including any historical
+    entries surviving from before this rule was enforced)."""
+    merged = []
+    for e in (existing or []):
+        if not isinstance(e, dict):
+            continue
+        # Skip legacy undated rows so they can never resurface in the UI.
+        if not _parse_date_str(str(e.get("date") or "")):
+            continue
+        merged.append(dict(e))
     for ev in (new or []):
         if not isinstance(ev, dict) or not (ev.get("event") or "").strip():
+            continue
+        # New event with unparseable date -> drop entirely.
+        if not _parse_date_str(str(ev.get("date") or "")):
             continue
         match = next((m for m in merged if same_event(m, ev)), None)
         if match is not None:
@@ -905,6 +1015,7 @@ class CacheAndRateLimit:
         # ever grows via merge_timeline, never gets regenerated from scratch.
         self.timeline = db.timeline_store
         self.ttl_hours = int(os.environ.get("CACHE_TTL_HOURS", "12"))
+        self.delta_ttl_minutes = os.environ.get("CACHE_TTL_DELTA_MINUTES")
 
     async def ensure_indexes(self) -> None:
         await self.cache.create_index("hash", unique=True)
@@ -914,9 +1025,15 @@ class CacheAndRateLimit:
 
     async def get_timeline(self, h: str) -> list[dict[str, Any]]:
         """Load the accumulated timeline for an article. No TTL — persists
-        far beyond the 12h delta cache."""
+        far beyond the 12h delta cache. Any legacy row without a parseable
+        date is stripped on read so it can never resurface in the UI (the
+        product rule: undated events must never be shown)."""
         doc = await self.timeline.find_one({"hash": h}, {"_id": 0})
-        return (doc or {}).get("timeline") or []
+        stored = (doc or {}).get("timeline") or []
+        return [
+            e for e in stored
+            if isinstance(e, dict) and _parse_date_str(str(e.get("date") or ""))
+        ]
 
     async def save_timeline(self, h: str, timeline: list[dict[str, Any]]
                             ) -> None:
@@ -973,9 +1090,11 @@ class CacheAndRateLimit:
         )
     
     async def get_cached_delta(self, h: str) -> Optional[dict[str, Any]]:
-        """Return the cached Latest-Update delta if it's still within its own
-        12h freshness window (shorter than the 12h main summary cache, since
-        'what's new' goes stale faster than the summary itself)."""
+        """Return the cached Latest-Update delta if it's still within its
+        freshness window. 'Empty' results (has_update: false) get a distinct,
+        typically shorter TTL controlled by LATEST_UPDATES_EMPTY_TTL_MINUTES
+        so a user is not stuck with a stale empty cache — they can re-try
+        after a short wait rather than seeing 'no updates' forever."""
         doc = await self.cache.find_one({"hash": h}, {"_id": 0})
         if not doc:
             return None
@@ -987,7 +1106,18 @@ class CacheAndRateLimit:
             generated_dt = datetime.fromisoformat(generated_at)
         except ValueError:
             return None
-        if datetime.now(timezone.utc) - generated_dt > timedelta(hours=12):
+        if not delta.get("has_update"):
+            try:
+                empty_ttl_min = float(
+                    os.environ.get("LATEST_UPDATES_EMPTY_TTL_MINUTES", "30")
+                )
+            except ValueError:
+                empty_ttl_min = 30.0
+            ttl = timedelta(minutes=empty_ttl_min)
+        else:
+            ttl = (timedelta(minutes=float(self.delta_ttl_minutes))
+                   if self.delta_ttl_minutes else timedelta(hours=self.ttl_hours))
+        if datetime.now(timezone.utc) - generated_dt > ttl:
             return None
         return delta
 
@@ -995,9 +1125,11 @@ class CacheAndRateLimit:
         await self.cache.update_one(
             {"hash": h},
             {"$set": {
+                "hash": h,
                 "latest_update_delta": delta,
                 "delta_generated_at": datetime.now(timezone.utc).isoformat(),
             }},
+            upsert=True,
         )
 
     async def list_recent(self, limit: int = 6) -> list[dict[str, Any]]:
