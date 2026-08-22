@@ -173,6 +173,17 @@ You will receive a news article (in ANY language) and MUST return a single JSON 
     "bias_indicators": ["array of 0 to 4 short strings, each grounded in a specific observation from THIS article — e.g. one-sided sourcing, loaded language, missing context that would materially change interpretation. If the article reads as balanced and fact-based with no notable indicators, return an EMPTY array — do NOT manufacture a bias claim to fill the section."],
     "disclaimer": "AI-generated analysis, not a factual claim about the publisher."
   },
+  "impact_analysis": {
+    "items": [
+      {
+        "aspect": "short label for who/what is affected, e.g. 'Harga di pasar', 'Bank yang diuntungkan', 'Emiten terdampak'",
+        "direction": "Positive | Negative | Mixed | Unclear — pick exactly one of these four English literals",
+        "certainty": "Stated | Inferred — 'Stated' ONLY if the article itself explicitly says this consequence will happen; 'Inferred' if reasoned from general domain knowledge the article does not state",
+        "description": "1-2 sentences on how and why, grounded in the article's facts plus well-established domain reasoning"
+      }
+    ],
+    "disclaimer": "AI-generated impact analysis based on the article's content and general domain knowledge — not financial, investment, or professional advice."
+  },
   "five_w_one_h": {
     "who": "string",
     "what": "string",
@@ -191,12 +202,19 @@ You will receive a news article (in ANY language) and MUST return a single JSON 
 }
 
 Rules:
-- Language: Every human-readable string value MUST be written in Bahasa Indonesia (Indonesian), regardless of the source article's language. This includes title, category, executive_summary, key_points, main_issue.*, root_cause.*, recommended_actions.* items and disclaimer, five_w_one_h.*, references[].title/website, sentiment_and_bias.tone_explanation, sentiment_and_bias.bias_indicators[], sentiment_and_bias.disclaimer, confidence_level.reason.
-- Keep the following as-is in their original form: URLs, publication_date, dates in references, the confidence_level.level value which MUST remain exactly one of the literal English strings "High", "Medium", or "Low", AND the sentiment_and_bias.tone value which MUST remain exactly one of "Positive", "Neutral", "Negative", or "Mixed".
+- Language: Every human-readable string value MUST be written in Bahasa Indonesia (Indonesian), regardless of the source article's language. This includes title, category, executive_summary, key_points, main_issue.*, root_cause.*, recommended_actions.* items and disclaimer, five_w_one_h.*, references[].title/website, sentiment_and_bias.tone_explanation, sentiment_and_bias.bias_indicators[], sentiment_and_bias.disclaimer, impact_analysis.items[].aspect, impact_analysis.items[].description, impact_analysis.disclaimer, confidence_level.reason.
+- Keep the following as-is in their original form: URLs, publication_date, dates in references, the confidence_level.level value which MUST remain exactly one of the literal English strings "High", "Medium", or "Low", the sentiment_and_bias.tone value which MUST remain exactly one of "Positive", "Neutral", "Negative", or "Mixed", the impact_analysis.items[].direction value which MUST remain exactly one of "Positive", "Negative", "Mixed", or "Unclear", AND the impact_analysis.items[].certainty value which MUST remain exactly "Stated" or "Inferred".
 - Keep proper nouns (people, organisations, places) natural — translate only when a standard Indonesian equivalent exists.
 - Never invent facts. If missing, say so in the relevant section (in Indonesian).
 - REFERENCES RULE (STRICT): Every references[] entry MUST include a real, retrievable http(s):// URL that is either the source article itself or explicitly cited in the article body with a resolvable link. NEVER emit a reference entry with a missing, empty, "#", "unknown", or otherwise non-navigable url field. If a source is mentioned in the article but no retrievable URL exists for it, OMIT that reference entirely — fold the attribution into body text if needed, but do NOT create a reference card. When in doubt, omit.
 - Sentiment & Bias is a subjective analytical read. Only cite bias_indicators that are grounded in specific observable features of THIS article (loaded language, one-sided sourcing, missing counter-context). Do NOT speculate about the publisher's general reputation, political leaning, or editorial history. If the article is balanced and fact-based, return an EMPTY bias_indicators array.
+- IMPACT ANALYSIS RULES (STRICT):
+  * Category-adaptive, NOT a fixed checklist: for business/economic/financial articles, prioritize aspects like which market prices are affected, which side benefits vs. loses, which listed companies/sectors are affected, related stock-index sectors. For non-financial articles (sports, politics, health, entertainment, etc.), adapt the aspects to whatever is actually relevant in that domain (e.g. merchandise sales or tourism for a sports championship; affected agencies or citizen groups for a policy article). NEVER force financial/market framing onto a non-financial article.
+  * certainty must be HONEST, not decorative: label "Stated" ONLY when the article explicitly says the consequence will happen; label "Inferred" when it is reasoned from general domain knowledge the article does not state. Most items will legitimately be "Inferred" — that is expected, not a flaw. Do NOT default to "Stated" to sound more authoritative.
+  * Never name a specific company or stock ticker unless the article itself discusses that company/sector, or it is extremely well-established general knowledge (e.g. naming major national banks in the context of a systemic policy change). Never invent an obscure specific stock claim not grounded in the article.
+  * Phrase every item descriptively ("sektor X berpotensi tertekan karena...") — never prescriptively ("sebaiknya membeli/menjual X").
+  * If the article has no clear differential impact on identifiable stakeholders, return an EMPTY items array — do NOT manufacture impacts to fill the section.
+  * The disclaimer text is mandatory exactly as given in the schema.
 - Keep every string plain text — no markdown, no HTML.
 - Return ONLY the JSON object, nothing else."""
 
@@ -272,6 +290,32 @@ async def summarize_article(text: str, source_url: str,
         or "AI-generated analysis, not a factual claim about the publisher.",
     }
 
+    # Defensive default for impact_analysis if the model omits or malforms it.
+    ia = data.get("impact_analysis") or {}
+    ia_items = []
+    for it in (ia.get("items") or []):
+        if not isinstance(it, dict) or not (it.get("description") or "").strip():
+            continue
+        direction = it.get("direction")
+        if direction not in ("Positive", "Negative", "Mixed", "Unclear"):
+            direction = "Unclear"
+        certainty = it.get("certainty")
+        if certainty not in ("Stated", "Inferred"):
+            certainty = "Inferred"  # cautious default, like confidence.level
+        ia_items.append({
+            "aspect": (it.get("aspect") or "").strip(),
+            "direction": direction,
+            "certainty": certainty,
+            "description": it["description"].strip(),
+        })
+    data["impact_analysis"] = {
+        "items": ia_items,
+        "disclaimer": ia.get("disclaimer")
+        or ("AI-generated impact analysis based on the article's content and "
+            "general domain knowledge — not financial, investment, or "
+            "professional advice."),
+    }
+
     return data
 
 
@@ -284,8 +328,8 @@ _TRANSLATE_SYSTEM = """You translate structured JSON news summaries between Engl
 Rules:
 - You will receive a JSON object and a target language.
 - Return ONLY a JSON object with the SAME schema and keys. No prose, no fences.
-- Translate every human-readable string value: title, category, executive_summary, each item in key_points, main_issue.summary + significance, root_cause.causes items + certainty_note, recommended_actions.immediate/short_term/long_term items + disclaimer, five_w_one_h.who/what/when/where/why/how, each references[].title and references[].website, sentiment_and_bias.tone_explanation + each item in sentiment_and_bias.bias_indicators + sentiment_and_bias.disclaimer, and confidence_level.reason.
-- DO NOT change: any url values, publication_date, generated_at, reading_time_minutes, confidence_level.level (keep as High/Medium/Low), sentiment_and_bias.tone (keep as Positive/Neutral/Negative/Mixed), or any references[].date.
+- Translate every human-readable string value: title, category, executive_summary, each item in key_points, main_issue.summary + significance, root_cause.causes items + certainty_note, recommended_actions.immediate/short_term/long_term items + disclaimer, five_w_one_h.who/what/when/where/why/how, each references[].title and references[].website, sentiment_and_bias.tone_explanation + each item in sentiment_and_bias.bias_indicators + sentiment_and_bias.disclaimer, each impact_analysis.items[].aspect and impact_analysis.items[].description + impact_analysis.disclaimer, and confidence_level.reason.
+- DO NOT change: any url values, publication_date, generated_at, reading_time_minutes, confidence_level.level (keep as High/Medium/Low), sentiment_and_bias.tone (keep as Positive/Neutral/Negative/Mixed), impact_analysis.items[].direction (keep as Positive/Negative/Mixed/Unclear), impact_analysis.items[].certainty (keep as Stated/Inferred), or any references[].date.
 - Keep proper nouns and organisation names natural (translate only where a standard translation exists).
 - Do not add or remove keys."""
 
@@ -350,6 +394,19 @@ async def translate_summary(summary: dict[str, Any], target: str
     src_cl = summary.get("confidence_level") or {}
     cl["level"] = src_cl.get("level", cl.get("level", "Medium"))
     data["confidence_level"] = cl
+
+    # Impact analysis enum literals preserved (direction/certainty stay English)
+    src_ia = summary.get("impact_analysis")
+    if src_ia:
+        out_ia = data.get("impact_analysis") or src_ia
+        src_items = src_ia.get("items") or []
+        out_items = out_ia.get("items") or []
+        for i, it in enumerate(out_items):
+            if i < len(src_items) and isinstance(it, dict):
+                it["direction"] = src_items[i].get("direction", it.get("direction"))
+                it["certainty"] = src_items[i].get("certainty", it.get("certainty"))
+        out_ia["items"] = out_items
+        data["impact_analysis"] = out_ia
 
     return data
 

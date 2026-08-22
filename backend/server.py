@@ -104,6 +104,12 @@ def build_summary_payload(url: str, ai: dict[str, Any],
             "bias_indicators": [],
             "disclaimer": "AI-generated analysis, not a factual claim about the publisher.",
         }),
+        "impact_analysis": ai.get("impact_analysis", {
+            "items": [],
+            "disclaimer": "AI-generated impact analysis based on the article's "
+                          "content and general domain knowledge — not financial, "
+                          "investment, or professional advice.",
+        }),
         "five_w_one_h": ai.get("five_w_one_h", {}),
         "references": ai.get("references", []),
         "confidence_level": ai.get("confidence_level",

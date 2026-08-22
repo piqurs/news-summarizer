@@ -16,6 +16,7 @@ import { ExportShare } from "./ExportShare";
 import { LanguageToggle } from "./LanguageToggle";
 import { LatestUpdates } from "./LatestUpdates";
 import { SentimentBias } from "./SentimentBias";
+import { ImpactAnalysis } from "./ImpactAnalysis";
 import { translateArticle } from "../lib/api";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
@@ -362,6 +363,13 @@ export function ResultCard({ summary, cached }) {
                     )}
                 </motion.div>
 
+                {/* Impact Analysis (9) — hidden entirely when no items */}
+                {(displayed.impact_analysis?.items?.length || 0) > 0 && (
+                    <motion.div variants={stagger} custom={9} className="mt-10">
+                        <ImpactAnalysis data={displayed.impact_analysis} />
+                    </motion.div>
+                )}
+
                 {/* Latest Updates */}
                 <motion.div variants={stagger} custom={9} className="mt-10">
                     <LatestUpdates
@@ -377,7 +385,7 @@ export function ResultCard({ summary, cached }) {
                     className="mt-10"
                     data-testid="references"
                 >
-                    <div className="label-eyebrow">10 · References</div>
+                    <div className="label-eyebrow">11 · References</div>
                     <ul className="mt-4 divide-y divide-border border border-border rounded-md">
                         {(displayed.references || []).map((r, i) => (
                             <li key={i} className="p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">

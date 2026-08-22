@@ -59,6 +59,19 @@ function plainSummaryText(s) {
             items.forEach((it, i) => lines.push(`    ${i + 1}. ${it}`));
         }
     });
+    const impactItems = s.impact_analysis?.items || [];
+    if (impactItems.length) {
+        lines.push("");
+        lines.push("IMPACT ANALYSIS (AI-generated)");
+        impactItems.forEach((it, i) =>
+            lines.push(
+                `${i + 1}. ${it.aspect} [${it.direction} / ${it.certainty}]: ${it.description}`,
+            ),
+        );
+        if (s.impact_analysis?.disclaimer) {
+            lines.push(`Note: ${s.impact_analysis.disclaimer}`);
+        }
+    }
     lines.push("");
     lines.push("5W1H");
     const w = s.five_w_one_h || {};
@@ -193,6 +206,19 @@ export function exportPdf(summary) {
     });
     divider();
 
+    const pdfImpactItems = summary.impact_analysis?.items || [];
+    if (pdfImpactItems.length) {
+        writeHeading("Impact Analysis (AI-generated)");
+        pdfImpactItems.forEach((it, i) => {
+            writeBody(`${i + 1}. ${it.aspect} [${it.direction} / ${it.certainty}]`);
+            writeBody(`   ${it.description}`);
+        });
+        if (summary.impact_analysis?.disclaimer) {
+            writeBody(`Note: ${summary.impact_analysis.disclaimer}`);
+        }
+        divider();
+    }
+
     writeHeading("5W1H");
     const w = summary.five_w_one_h || {};
     ["who", "what", "when", "where", "why", "how"].forEach((k) => {
@@ -276,6 +302,22 @@ export async function exportDocx(summary) {
             children.push(...L(items));
         }
     });
+
+    const docxImpactItems = summary.impact_analysis?.items || [];
+    if (docxImpactItems.length) {
+        children.push(H("Impact Analysis (AI-generated)"));
+        docxImpactItems.forEach((it, i) => {
+            children.push(
+                P(`${i + 1}. ${it.aspect} [${it.direction} / ${it.certainty}]`, {
+                    bold: true,
+                }),
+            );
+            children.push(P(`   ${it.description}`));
+        });
+        if (summary.impact_analysis?.disclaimer) {
+            children.push(P(`Note: ${summary.impact_analysis.disclaimer}`));
+        }
+    }
 
     children.push(H("5W1H"));
     const w = summary.five_w_one_h || {};

@@ -81,10 +81,19 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 - Bento About section with 13 feature cards (roadmap removed 2026-02).
 - Footer with GitHub / LinkedIn / Instagram links.
 
-## Result-card section order (10 sections)
-1 Executive Summary · 2 Key Points · 3 Main Issue · 4 Root Cause ·
-5 Sentiment & Bias Analysis · 6 Recommended Actions · 7 Latest Updates ·
-8 5W1H · 9 References · 10 Confidence
+## Result-card section order (11 sections, as rendered Jun 2026)
+1 Executive Summary · 2 Key Points · 3 Main Issue · 4 Root Cause · 5 5W1H ·
+6 Sentiment & Bias · 7 Confidence · 8 Recommended Actions ·
+9 Impact Analysis (hidden entirely when items empty) · 10 Latest Updates ·
+11 References
+
+## Implemented (2026-06) — Impact Analysis section
+- New `impact_analysis` in summarize schema: `items[{aspect, direction, certainty, description}]` + mandatory disclaimer.
+- `direction` (Positive|Negative|Mixed|Unclear) and `certainty` (Stated|Inferred) are English literals — untouched by EN/ID translation (enforced in prompt + code, like tone/confidence.level).
+- Defensive defaults in `services.summarize_article`: invalid direction→Unclear, invalid certainty→Inferred (cautious), items without description dropped.
+- Category-adaptive prompt rules (finance aspects for finance news, domain-relevant for others), no-advice guardrails, "Stated" only when article explicitly states it.
+- Empty items ⇒ entire section hidden in UI (`ImpactAnalysis.jsx` returns null + parent conditional), PDF, Word, and plain-text copy/share (guarded in `exporters.js`).
+- Verified: financial (kompas rupiah) + sports (BBC La Liga) articles via curl, EN translation enum preservation, UI screenshot.
 
 ## Backlog (Deferred)
 ### P1
