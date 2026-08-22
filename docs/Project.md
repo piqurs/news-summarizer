@@ -36,30 +36,43 @@ Emergent LLM Key budget survives real traffic.
 
 ## 4. In-scope MVP feature set
 
-| ID | Feature                          | State       |
-| -- | -------------------------------- | ----------- |
-| F1 | Paste URL → structured summary   | shipped     |
-| F2 | 9 canonical result sections      | shipped     |
-| F3 | Bahasa Indonesia default output  | shipped     |
-| F4 | EN ↔ ID toggle (per-summary)     | shipped     |
-| F5 | Latest Updates (Tavily + Claude) | shipped     |
-| F6 | Recent News feed (last 12 h)     | shipped     |
-| F7 | Copy / PDF / DOCX / Share export | shipped     |
-| F8 | Per-IP sliding-hour rate limits  | shipped     |
-| F9 | Light / dark theme               | shipped     |
+| ID  | Feature                                     | State       |
+| --- | ------------------------------------------- | ----------- |
+| F1  | Paste URL → structured summary              | shipped     |
+| F2  | 10 canonical result sections                | shipped     |
+| F3  | Bahasa Indonesia default output             | shipped     |
+| F4  | EN ↔ ID toggle (per-summary)                | shipped     |
+| F5  | Latest Updates (Tavily + Claude)            | shipped     |
+| F6  | Recent News feed (last 12 h)                | shipped     |
+| F7  | Copy / PDF / DOCX / Share export            | shipped     |
+| F8  | Per-IP sliding-hour rate limits             | shipped     |
+| F9  | Light / dark theme                          | shipped     |
+| F10 | Slug-based Share URL + Latest Updates in PDF/DOCX | shipped (Feb 2026) |
 
-### 4.1 The 9 result sections (fixed order — do not re-order)
+### 4.1 The 10 result sections (fixed order — do not re-order)
 
 1. Executive Summary
 2. Key Points
 3. Main Issue
 4. Root Cause
-5. Sentiment & Bias Analysis
-6. Recommended Actions
-7. Latest Updates (deferred, user-triggered)
-8. 5W1H
-9. References
-10. Confidence
+5. 5W1H
+6. Sentiment & Bias Analysis
+7. Confidence
+8. Recommended Actions
+9. Impact Analysis (hidden entirely if `items[]` empty)
+10. Latest Updates (deferred, user-triggered)
+11. References
+
+### 4.2 Share & Export contract (F10, Feb 2026)
+
+- **Share URL**: native Share and the clipboard fallback emit
+  `https://test-50.emergent.host/{full-article-slug}`. Slug is built from
+  the full article title (see `Design.md` §11.2). The Share button never
+  emits the raw source URL.
+- **PDF & DOCX exports** include Latest Updates when the user has fetched
+  it in-session. Both files use a consistent typography scale, section
+  headings with accent underline, muted meta lines, numbered lists with
+  `0N.` prefixes, and matching filename slug. See `Design.md` §11.1.
 
 ## 5. Users
 

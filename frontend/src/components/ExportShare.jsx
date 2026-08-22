@@ -7,10 +7,10 @@ import {
     shareSummary,
 } from "../lib/exporters";
 
-export function ExportShare({ summary }) {
+export function ExportShare({ summary, latestUpdates }) {
     const handleCopy = async () => {
         try {
-            await copyToClipboard(summary);
+            await copyToClipboard(summary, latestUpdates);
             toast.success("Summary copied to clipboard");
         } catch {
             toast.error("Could not copy to clipboard");
@@ -18,7 +18,7 @@ export function ExportShare({ summary }) {
     };
     const handlePdf = () => {
         try {
-            exportPdf(summary);
+            exportPdf(summary, latestUpdates);
             toast.success("PDF exported");
         } catch {
             toast.error("PDF export failed");
@@ -26,7 +26,7 @@ export function ExportShare({ summary }) {
     };
     const handleDocx = async () => {
         try {
-            await exportDocx(summary);
+            await exportDocx(summary, latestUpdates);
             toast.success("Word document exported");
         } catch {
             toast.error("DOCX export failed");
@@ -34,8 +34,12 @@ export function ExportShare({ summary }) {
     };
     const handleShare = async () => {
         try {
-            const shared = await shareSummary(summary);
-            toast.success(shared ? "Shared" : "Copied — sharing not available");
+            const { shared, url } = await shareSummary(summary, latestUpdates);
+            if (shared) {
+                toast.success("Shared");
+            } else {
+                toast.success(`Link copied: ${url}`);
+            }
         } catch (err) {
             // User cancelling the Web Share dialog throws AbortError — that's
             // not a failure. Log anything else so we can debug.

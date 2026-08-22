@@ -45,12 +45,16 @@ export function ResultCard({ summary, cached }) {
     const [langCache, setLangCache] = useState({ id: summary, en: null });
     const [lang, setLang] = useState("id");
     const [loadingTarget, setLoadingTarget] = useState(null);
+    // Fetched Latest Updates payload — passed to ExportShare so PDF/Word
+    // can include this section when the user has already fetched it.
+    const [latestUpdates, setLatestUpdates] = useState(null);
 
     // Reset local cache when a new summary flows in (different article).
     useEffect(() => {
         setLangCache({ id: summary, en: null });
         setLang("id");
         setLoadingTarget(null);
+        setLatestUpdates(null);
     }, [summary]);
 
     const handleLangChange = async (target) => {
@@ -159,7 +163,7 @@ export function ResultCard({ summary, cached }) {
                     custom={1}
                     className="mt-6 flex flex-wrap items-center justify-between gap-3"
                 >
-                    <ExportShare summary={displayed} />
+                    <ExportShare summary={displayed} latestUpdates={latestUpdates} />
                     <LanguageToggle
                         current={lang}
                         onChange={handleLangChange}
@@ -375,6 +379,7 @@ export function ResultCard({ summary, cached }) {
                     <LatestUpdates
                         topic={a.title || displayed.main_issue?.summary || ""}
                         sourceUrl={a.original_url}
+                        onDataChange={setLatestUpdates}
                     />
                 </motion.div>
 

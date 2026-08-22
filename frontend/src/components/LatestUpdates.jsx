@@ -18,14 +18,16 @@ function fmtDate(d) {
     }
 }
 
-export function LatestUpdates({ topic, sourceUrl }) {
+export function LatestUpdates({ topic, sourceUrl, onDataChange }) {
     const [state, setState] = useState({ status: "idle", delta: null });
 
     const fetchNow = async () => {
         setState({ status: "loading", delta: null });
+        onDataChange?.(null);
         try {
             const delta = await getLatestUpdates(topic, sourceUrl);
             setState({ status: "ready", delta });
+            onDataChange?.(delta);
             if (!delta?.has_update)
                 toast.info(
                     "No newer public updates were found at the time of analysis.",
@@ -33,6 +35,7 @@ export function LatestUpdates({ topic, sourceUrl }) {
         } catch (e) {
             const msg = e?.response?.data?.detail || "Live search failed.";
             setState({ status: "error", delta: null, error: msg });
+            onDataChange?.(null);
             toast.error(msg);
         }
     };

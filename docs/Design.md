@@ -216,22 +216,62 @@ carries a stable, kebab-case `data-testid`. Naming:
 ## 11. Technical design decisions
 
 ### 11.1 Client-side exports
+
 PDF and DOCX are generated in the browser (`jsPDF`, `docx`). No server
 storage of exports, no signed URLs, no email-me-the-file flow.
 
-### 11.2 Theme via next-themes
+**Export layout contract (Feb 2026 rewrite).** Both PDF and DOCX use the
+same section order as the on-screen result card and the same visual
+tokens:
+
+- **Consistent typography.** PDF: Helvetica for all text. DOCX: Calibri
+  body, Calibri Bold headings.
+- **Section headings.** Uppercase-cased title with an accent bar / bottom
+  border. Never render an empty section (Impact Analysis is hidden when
+  `items[]` is empty — same rule as the UI).
+- **Metadata block.** Under the title: category · read time · source ·
+  URL · publication date · generated timestamp · confidence level. All
+  in muted mono.
+- **Body text.** 10.5 pt PDF / 11 pt DOCX, 1.5 line height. Numbered
+  lists use zero-padded `01.` prefix in muted grey.
+- **Latest Updates in exports.** When the user has clicked
+  "Show Latest Updates" **before** exporting, the current in-memory
+  delta (`overview`, `developments`, `timeline`, `current_situation`,
+  `market_impact`, `confidence`, `sources_used`) is appended between
+  Impact Analysis and References. When the user has not fetched Latest
+  Updates yet, the section is entirely omitted — exporters never trigger
+  a live search on their own.
+- **Filename.** `news-summary-{full-article-slug}.{pdf|docx}` — same
+  slug builder as Share (`slugifyTitle`).
+
+### 11.2 Share URL — slug format
+
+Native Share (and the clipboard fallback) always emits a **canonical
+share URL** derived from the full article title:
+
+```
+https://test-50.emergent.host/{full-article-slug}
+```
+
+The slug is produced by `slugifyTitle(title)` in `lib/exporters.js`:
+NFKD-normalised, lowercased, non-alphanumerics collapsed into single
+hyphens, no leading / trailing hyphen, empty title falls back to
+`article`. The Share function never emits the raw source URL — that
+belongs in the References section, not in the outbound link.
+
+### 11.3 Theme via next-themes
 Single provider in `lib/theme.jsx`. All colour tokens flip via CSS
 variables. No component reads the current theme; they read tokens.
 
-### 11.3 One canonical `api.js` client
+### 11.4 One canonical `api.js` client
 `frontend/src/lib/api.js` is the only place that constructs axios
 instances or reads `REACT_APP_BACKEND_URL`. Components import functions,
 not axios directly.
 
-### 11.4 Motion is decoration, not chrome
+### 11.5 Motion is decoration, not chrome
 No motion is ever load-bearing. Removing framer-motion must not break
 functionality.
 
-### 11.5 No AI-generated imagery
+### 11.6 No AI-generated imagery
 The product surface is textual. Do not add generated images to the
 result card without a scope change.

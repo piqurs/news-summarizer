@@ -81,6 +81,42 @@ Clean, premium SaaS experience inspired by Linear/Vercel/Stripe/Notion.
 - Bento About section with 13 feature cards (roadmap removed 2026-02).
 - Footer with GitHub / LinkedIn / Instagram links.
 
+## Implemented (2026-02) — Share URL + Export rewrite (F10)
+- **Share URL slug format** — `shareSummary()` in `lib/exporters.js` now emits
+  `https://test-50.emergent.host/{full-article-slug}` via the new
+  `slugifyTitle()` helper (NFKD-normalised, lowercased, non-alphanumerics
+  collapsed to single hyphens). The raw article `original_url` is no longer
+  used as the shared link. Clipboard fallback also uses the slug URL and
+  the toast shows the copied URL for user confirmation.
+- **Latest Updates now flows into PDF/DOCX** — `LatestUpdates.jsx` exposes
+  its fetched delta via `onDataChange`; `ResultCard.jsx` lifts it into
+  state and threads it into `<ExportShare summary={..} latestUpdates={..} />`.
+  Exporters accept `(summary, latestUpdates)` and only append the section
+  when `has_update === true` — they never trigger a live search on export.
+- **PDF export rewrite (`exportPdf`)** — Helvetica everywhere; consistent
+  typographic scale (title 22pt / H1 14pt / H2 11.5pt / body 10.5pt);
+  section headings with a 3-pt blue accent bar; muted mono metadata block;
+  numbered lists with zero-padded `01.` prefix in muted grey; per-section
+  divider; footer with page number on every page; sensible page break
+  guards; `textWithLink()` for reference URLs.
+- **DOCX export rewrite (`exportDocx`)** — Calibri body, Calibri Bold
+  headings; consistent size tokens (title 20pt / H1 14pt / H2 12pt /
+  body 11pt); section headings use `HEADING_1` + a bottom border for a
+  clean underline; per-block indentation; muted-italic notes; explicit
+  `sections[0].properties.page.margin` for balanced margins; base style
+  applied via `styles.default.document` so the document opens with a
+  coherent theme rather than Word's defaults.
+- **Filename slug** — Both PDF and DOCX now save as
+  `news-summary-{slug}.{pdf|docx}` using the same `slugifyTitle()`.
+- **UI unchanged** — no layout / spacing changes to the on-screen result
+  card. Only the export outputs and Share behaviour changed.
+
+## Result-card section order (2026-02)
+1 Executive Summary · 2 Key Points · 3 Main Issue · 4 Root Cause ·
+5 5W1H · 6 Sentiment & Bias · 7 Confidence · 8 Recommended Actions ·
+9 Impact Analysis (hidden if items empty) · 10 Latest Updates ·
+11 References
+
 ## Result-card section order (11 sections, as rendered Jun 2026)
 1 Executive Summary · 2 Key Points · 3 Main Issue · 4 Root Cause · 5 5W1H ·
 6 Sentiment & Bias · 7 Confidence · 8 Recommended Actions ·

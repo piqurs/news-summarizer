@@ -256,6 +256,21 @@ feed and repeat clicks free.
 ### 7.10 Only shadcn primitives, only sonner toasts, only lucide icons
 Do not introduce another UI library, toast library, or icon set.
 
+### 7.11 Latest Updates flows into exports via ResultCard state (Feb 2026)
+`LatestUpdates.jsx` is presentational — its fetched delta is lifted to
+`ResultCard.jsx` via an `onDataChange` callback and threaded down into
+`ExportShare.jsx`. `exporters.js` receives `(summary, latestUpdates)` and
+appends the Latest Updates block **only** when `has_update === true`.
+Exporters must never trigger a `/api/latest-updates` call themselves —
+that would silently burn a rate-limit slot on export.
+
+### 7.12 Slug-based Share URL (Feb 2026)
+`slugifyTitle` in `lib/exporters.js` is the single source of truth for
+the article slug used in both the Share URL and the exported filename.
+Share emits `https://test-50.emergent.host/{slug}`; there is no
+server-side route for the slug today — the URL is a display / marketing
+canonical, not a router.
+
 ## 8. Deployment
 
 - Preview: `https://<preview-slug>.preview.emergentagent.com`
