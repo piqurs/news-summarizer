@@ -151,8 +151,8 @@ You will receive a news article (in ANY language) and MUST return a single JSON 
   "key_entities": ["array of 2-6 specific named entities central to this article — company names, institution names, stock tickers, person names, or the specific event/decision. These are used to build a precise search query for related news, so use exact proper nouns, not generic terms (e.g. 'Bank Indonesia', 'BBRI', 'Perry Warjiyo' — NOT 'central bank' or 'interest rates')."],
   "publication_date": "string or null — ISO date if the article states one, else null",
   "reading_time_minutes": "integer — realistic reading time",
+  "key_points": ["array of 7-8 candidate bullet strings — see KEY POINTS RULES below for what belongs here; over-generate here, this list gets filtered down to 4-6 truly distinct points afterward"],
   "executive_summary": "string — 100 to 150 words. What happened, why it matters, overall context.",
-  "key_points": ["exactly 5 concise bullet strings"],
   "main_issue": {
     "summary": "string — the primary issue discussed",
     "significance": "string — why it's significant"
@@ -206,6 +206,17 @@ Rules:
 - Keep the following as-is in their original form: URLs, publication_date, dates in references, the confidence_level.level value which MUST remain exactly one of the literal English strings "High", "Medium", or "Low", the sentiment_and_bias.tone value which MUST remain exactly one of "Positive", "Neutral", "Negative", or "Mixed", the impact_analysis.items[].direction value which MUST remain exactly one of "Positive", "Negative", "Mixed", or "Unclear", AND the impact_analysis.items[].certainty value which MUST remain exactly "Stated" or "Inferred".
 - Keep proper nouns (people, organisations, places) natural — translate only when a standard Indonesian equivalent exists.
 - Never invent facts. If missing, say so in the relevant section (in Indonesian).
+- KEY POINTS RULES (STRICT):
+  * Key points are SUPPORTING STRATEGIC DETAIL, not a restatement of the executive summary. Extract candidates directly from the article body BEFORE writing the executive summary — key_points is generated first in this schema for exactly that reason, so there is no narrative yet to paraphrase from.
+  * Search for candidates in this priority order, trying each in turn — use whichever categories the article actually supports, never force a category that isn't there:
+    1. A named approach, program, or policy explicitly labeled in the article (a specific term, not a paraphrase of one)
+    2. A stated posture or relationship between institutions/parties (e.g. how one party says it will coordinate with, defer to, or remain independent from another)
+    3. A specific mechanism or procedure described for how something will be done or enforced
+    4. A direct quote that reveals reasoning or attitude — not one that merely restates the main fact
+    5. A precise supporting number that is NOT the article's headline figure (a breakdown, a component, a comparison point)
+    6. Historical or comparative context (a record, "Nth consecutive year", a comparison to a prior event)
+  * Each candidate must stand as new information on its own. Never split one fact into two candidates by rephrasing it. Never restate a five_w_one_h answer as a bullet.
+  * Do not invent a fact to fill a category the article doesn't support — an article that only supports 4 real candidates should produce 4 honest ones, not 7 padded ones.
 - REFERENCES RULE (STRICT): Every references[] entry MUST include a real, retrievable http(s):// URL that is either the source article itself or explicitly cited in the article body with a resolvable link. NEVER emit a reference entry with a missing, empty, "#", "unknown", or otherwise non-navigable url field. If a source is mentioned in the article but no retrievable URL exists for it, OMIT that reference entirely — fold the attribution into body text if needed, but do NOT create a reference card. When in doubt, omit.
 - Sentiment & Bias is a subjective analytical read. Only cite bias_indicators that are grounded in specific observable features of THIS article (loaded language, one-sided sourcing, missing counter-context). Do NOT speculate about the publisher's general reputation, political leaning, or editorial history. If the article is balanced and fact-based, return an EMPTY bias_indicators array.
 - IMPACT ANALYSIS RULES (STRICT):
@@ -316,6 +327,36 @@ async def summarize_article(text: str, source_url: str,
             "professional advice."),
     }
 
+    # Key points must be genuinely distinct from the executive summary and
+    # from each other — the model over-generates 7-8 candidates for exactly
+    # this filtering step. Deterministic word-overlap check (same Jaccard
+    # approach already proven for timeline dedup in same_event/_word_set
+    # above) rather than trusting the model's own judgment of "distinct
+    # enough", which has not been reliable elsewhere in this codebase.
+    raw_points = [p.strip() for p in (data.get("key_points") or [])
+                  if isinstance(p, str) and p.strip()]
+    summary_words = _word_set(data.get("executive_summary") or "")
+    kept_points: list[str] = []
+    kept_word_sets: list[set[str]] = []
+    for point in raw_points:
+        point_words = _word_set(point)
+        if not point_words:
+            continue
+        overlap_with_summary = (
+            len(point_words & summary_words) / len(point_words)
+            if summary_words else 0
+        )
+        if overlap_with_summary >= 0.6:
+            continue  # too similar to the executive summary
+        if any(len(point_words & kw) / len(point_words | kw) >= 0.5
+               for kw in kept_word_sets):
+            continue  # too similar to a key point already kept
+        kept_points.append(point)
+        kept_word_sets.append(point_words)
+        if len(kept_points) >= 6:
+            break
+    data["key_points"] = kept_points
+    
     return data
 
 
